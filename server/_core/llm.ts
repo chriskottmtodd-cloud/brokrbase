@@ -316,21 +316,54 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  // Retry transient errors (503/429/502/504) with exponential backoff.
+  // Gemini's UNAVAILABLE / RESOURCE_EXHAUSTED errors during traffic spikes are
+  // almost always cleared by a quick retry — no reason the user should see them.
+  const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+  const MAX_ATTEMPTS = 5;
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(resolveApiUrl(), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${getApiKey()}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkErr) {
+      // Network error — also retryable
+      lastError = networkErr instanceof Error ? networkErr : new Error(String(networkErr));
+      if (attempt < MAX_ATTEMPTS) {
+        const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1));
+        console.warn(`[LLM] Network error on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms…`);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw lastError;
+    }
+
+    if (response.ok) {
+      return (await response.json()) as InvokeResult;
+    }
+
     const errorText = await response.text();
-    throw new Error(
+    lastError = new Error(
       `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
     );
+
+    if (!RETRYABLE_STATUSES.has(response.status) || attempt >= MAX_ATTEMPTS) {
+      throw lastError;
+    }
+
+    // Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s
+    const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
+    console.warn(`[LLM] Got ${response.status} on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms…`);
+    await new Promise((r) => setTimeout(r, backoffMs));
   }
 
-  return (await response.json()) as InvokeResult;
+  throw lastError ?? new Error("LLM invoke failed after retries");
 }
