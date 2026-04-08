@@ -286,10 +286,17 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
-  const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+  // Primary model with a fallback chain. If the primary is 503/429-overloaded
+  // for all 5 retries, fall through to the next model. Order = prefer cheap/fast
+  // first, fall back to slower/pricier as needed.
+  const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.5-pro"];
+
+  const buildPayload = (model: string): Record<string, unknown> => ({
+    model,
     messages: messages.map(normalizeMessage),
-  };
+  });
+
+  let payload: Record<string, unknown> = buildPayload(MODEL_CHAIN[0]);
 
   if (tools && tools.length > 0) {
     payload.tools = tools;
@@ -317,53 +324,64 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   }
 
   // Retry transient errors (503/429/502/504) with exponential backoff.
-  // Gemini's UNAVAILABLE / RESOURCE_EXHAUSTED errors during traffic spikes are
-  // almost always cleared by a quick retry — no reason the user should see them.
+  // After exhausting retries on the primary model, fall through to the next
+  // model in MODEL_CHAIN — useful when Gemini Flash is having a bad day.
   const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
-  const MAX_ATTEMPTS = 5;
+  const ATTEMPTS_PER_MODEL = 3;
   let lastError: Error | null = null;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    let response: Response;
-    try {
-      response = await fetch(resolveApiUrl(), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${getApiKey()}`,
-        },
-        body: JSON.stringify(payload),
-      });
-    } catch (networkErr) {
-      // Network error — also retryable
-      lastError = networkErr instanceof Error ? networkErr : new Error(String(networkErr));
-      if (attempt < MAX_ATTEMPTS) {
-        const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1));
-        console.warn(`[LLM] Network error on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms…`);
-        await new Promise((r) => setTimeout(r, backoffMs));
-        continue;
+  for (const modelName of MODEL_CHAIN) {
+    payload = buildPayload(modelName);
+    if (modelName !== MODEL_CHAIN[0]) {
+      console.warn(`[LLM] Falling back to model: ${modelName}`);
+    }
+
+    for (let attempt = 1; attempt <= ATTEMPTS_PER_MODEL; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch(resolveApiUrl(), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${getApiKey()}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (networkErr) {
+        lastError = networkErr instanceof Error ? networkErr : new Error(String(networkErr));
+        if (attempt < ATTEMPTS_PER_MODEL) {
+          const backoffMs = Math.min(4000, 500 * Math.pow(2, attempt - 1));
+          console.warn(`[LLM:${modelName}] Network error attempt ${attempt}/${ATTEMPTS_PER_MODEL}, retrying in ${backoffMs}ms…`);
+          await new Promise((r) => setTimeout(r, backoffMs));
+          continue;
+        }
+        break; // try next model
       }
-      throw lastError;
+
+      if (response.ok) {
+        return (await response.json()) as InvokeResult;
+      }
+
+      const errorText = await response.text();
+      lastError = new Error(
+        `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+      );
+
+      if (!RETRYABLE_STATUSES.has(response.status)) {
+        throw lastError; // non-retryable, give up immediately
+      }
+
+      if (attempt >= ATTEMPTS_PER_MODEL) {
+        console.warn(`[LLM:${modelName}] Exhausted ${ATTEMPTS_PER_MODEL} attempts with ${response.status}, falling through to next model`);
+        break; // try next model in chain
+      }
+
+      // Exponential backoff with jitter: 500ms, 1s, 2s
+      const backoffMs = Math.min(4000, 500 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
+      console.warn(`[LLM:${modelName}] Got ${response.status} attempt ${attempt}/${ATTEMPTS_PER_MODEL}, retrying in ${backoffMs}ms…`);
+      await new Promise((r) => setTimeout(r, backoffMs));
     }
-
-    if (response.ok) {
-      return (await response.json()) as InvokeResult;
-    }
-
-    const errorText = await response.text();
-    lastError = new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-
-    if (!RETRYABLE_STATUSES.has(response.status) || attempt >= MAX_ATTEMPTS) {
-      throw lastError;
-    }
-
-    // Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s
-    const backoffMs = Math.min(8000, 500 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
-    console.warn(`[LLM] Got ${response.status} on attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms…`);
-    await new Promise((r) => setTimeout(r, backoffMs));
   }
 
-  throw lastError ?? new Error("LLM invoke failed after retries");
+  throw lastError ?? new Error("LLM invoke failed after exhausting all models");
 }
