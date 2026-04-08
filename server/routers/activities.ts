@@ -84,6 +84,11 @@ export const activitiesRouter = router({
         outcome: OUTCOME_ENUM.nullable().optional(),
         duration: z.number().nullable().optional(),
         occurredAt: z.date().optional(),
+        // Allow re-linking the activity to a different contact/property
+        // (in case the AI auto-linked it to the wrong one and the broker
+        // wants to fix it from the activity detail modal)
+        contactId: z.number().nullable().optional(),
+        propertyId: z.number().nullable().optional(),
       }),
     )
     .mutation(({ ctx, input }) => {

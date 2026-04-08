@@ -67,8 +67,34 @@ export function ActivityDetailModal({
     outcome: "" as "" | (typeof OUTCOMES)[number],
     duration: "",
     occurredAt: "",
+    contactId: null as number | null,
+    propertyId: null as number | null,
   });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Search state for re-linking contact/property in edit mode
+  const [contactSearch, setContactSearch] = useState("");
+  const [showContactSearch, setShowContactSearch] = useState(false);
+  const [propertySearch, setPropertySearch] = useState("");
+  const [showPropertySearch, setShowPropertySearch] = useState(false);
+
+  const contactSearchQuery = trpc.contacts.list.useQuery(
+    { search: contactSearch, limit: 10 },
+    { enabled: showContactSearch && contactSearch.length >= 1 },
+  );
+  const propertySearchQuery = trpc.properties.list.useQuery(
+    { search: propertySearch, limit: 10 },
+    { enabled: showPropertySearch && propertySearch.length >= 1 },
+  );
+
+  // Resolve the currently-linked contact/property names for display
+  const linkedContactQuery = trpc.contacts.byId.useQuery(
+    { id: form.contactId ?? 0 },
+    { enabled: editing && !!form.contactId },
+  );
+  const linkedPropertyQuery = trpc.properties.byId.useQuery(
+    { id: form.propertyId ?? 0 },
+    { enabled: editing && !!form.propertyId },
+  );
 
   const data = detailQuery.data;
 
@@ -83,8 +109,14 @@ export function ActivityDetailModal({
         occurredAt: data.activity.occurredAt
           ? format(new Date(data.activity.occurredAt), "yyyy-MM-dd'T'HH:mm")
           : "",
+        contactId: data.activity.contactId ?? null,
+        propertyId: data.activity.propertyId ?? null,
       });
       setEditing(false);
+      setShowContactSearch(false);
+      setShowPropertySearch(false);
+      setContactSearch("");
+      setPropertySearch("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.activity?.id]);
@@ -120,6 +152,8 @@ export function ActivityDetailModal({
       outcome: form.outcome || null,
       duration: form.duration ? Number(form.duration) : null,
       occurredAt: form.occurredAt ? new Date(form.occurredAt) : undefined,
+      contactId: form.contactId,
+      propertyId: form.propertyId,
     });
   };
 
@@ -304,6 +338,152 @@ export function ActivityDetailModal({
                     />
                   </div>
                 </div>
+
+                {/* Linked contact (re-link) */}
+                <div>
+                  <label className="text-xs text-muted-foreground">Linked Contact</label>
+                  {form.contactId && !showContactSearch ? (
+                    <div className="flex items-center justify-between gap-2 border rounded-md p-2 bg-muted/30">
+                      <div className="text-sm">
+                        {linkedContactQuery.data
+                          ? `${linkedContactQuery.data.firstName} ${linkedContactQuery.data.lastName}`
+                          : "Loading…"}
+                        {linkedContactQuery.data?.company && (
+                          <span className="text-xs text-muted-foreground"> · {linkedContactQuery.data.company}</span>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setShowContactSearch(true);
+                            setContactSearch("");
+                          }}
+                        >
+                          Change
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => setForm({ ...form, contactId: null })}
+                        >
+                          Unlink
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        autoFocus={showContactSearch}
+                        placeholder="Search contacts by name, email, or company…"
+                        value={contactSearch}
+                        onChange={(e) => {
+                          setContactSearch(e.target.value);
+                          setShowContactSearch(true);
+                        }}
+                        className="h-9"
+                      />
+                      {showContactSearch && contactSearch.length >= 1 && (
+                        <div className="max-h-40 overflow-y-auto border rounded-md">
+                          {(contactSearchQuery.data ?? []).length === 0 ? (
+                            <p className="text-xs text-muted-foreground p-2">No matching contacts</p>
+                          ) : (
+                            (contactSearchQuery.data ?? []).map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setForm({ ...form, contactId: c.id });
+                                  setShowContactSearch(false);
+                                  setContactSearch("");
+                                }}
+                                className="block w-full text-left p-2 hover:bg-muted text-sm border-b last:border-b-0"
+                              >
+                                <div className="font-medium">{c.firstName} {c.lastName}</div>
+                                {c.company && <div className="text-xs text-muted-foreground">{c.company}</div>}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Linked property (re-link) */}
+                <div>
+                  <label className="text-xs text-muted-foreground">Linked Property</label>
+                  {form.propertyId && !showPropertySearch ? (
+                    <div className="flex items-center justify-between gap-2 border rounded-md p-2 bg-muted/30">
+                      <div className="text-sm">
+                        {linkedPropertyQuery.data?.name ?? "Loading…"}
+                        {linkedPropertyQuery.data?.city && (
+                          <span className="text-xs text-muted-foreground"> · {linkedPropertyQuery.data.city}</span>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setShowPropertySearch(true);
+                            setPropertySearch("");
+                          }}
+                        >
+                          Change
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => setForm({ ...form, propertyId: null })}
+                        >
+                          Unlink
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        placeholder="Search properties by name, address, or city…"
+                        value={propertySearch}
+                        onChange={(e) => {
+                          setPropertySearch(e.target.value);
+                          setShowPropertySearch(true);
+                        }}
+                        className="h-9"
+                      />
+                      {showPropertySearch && propertySearch.length >= 1 && (
+                        <div className="max-h-40 overflow-y-auto border rounded-md">
+                          {(propertySearchQuery.data ?? []).length === 0 ? (
+                            <p className="text-xs text-muted-foreground p-2">No matching properties</p>
+                          ) : (
+                            (propertySearchQuery.data ?? []).map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => {
+                                  setForm({ ...form, propertyId: p.id });
+                                  setShowPropertySearch(false);
+                                  setPropertySearch("");
+                                }}
+                                className="block w-full text-left p-2 hover:bg-muted text-sm border-b last:border-b-0"
+                              >
+                                <div className="font-medium">{p.name}</div>
+                                {p.city && <div className="text-xs text-muted-foreground">{p.city}</div>}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-2 justify-end">
                   <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
                     Cancel
