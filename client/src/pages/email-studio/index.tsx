@@ -128,6 +128,10 @@ export default function EmailStudio() {
   const [confirmedContactId, setConfirmedContactId] = useState<number | null>(null);
   const [showSwapPicker, setShowSwapPicker] = useState(false);
   const [swapSearch, setSwapSearch] = useState("");
+  // Inline edit state for suggested actions
+  const [editingActionIdx, setEditingActionIdx] = useState<number | null>(null);
+  // Working copy of edited suggested actions (lets the broker tweak before applying)
+  const [editedActions, setEditedActions] = useState<SuggestedAction[]>([]);
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const profile = profileQuery.data;
@@ -170,10 +174,12 @@ export default function EmailStudio() {
   useEffect(() => {
     if (analysis) {
       setAcceptedActions(new Set(analysis.suggestedActions.map((_, i) => i)));
+      setEditedActions(analysis.suggestedActions.map((a) => ({ ...a })));
       // Default the confirmed contact to the AI's primary pick (or null if new)
       setConfirmedContactId(analysis.detectedRecipient.contactId);
       setShowSwapPicker(false);
       setSwapSearch("");
+      setEditingActionIdx(null);
     }
   }, [analysis]);
 
@@ -484,7 +490,8 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
       // If the broker confirmed an existing contact (via auto-detect or swap),
       // skip any "create_contact" action that targets the recipient — they
       // already exist, no need to make a duplicate.
-      const accepted = analysis.suggestedActions
+      // Use editedActions so any in-place edits the broker made are applied.
+      const accepted = editedActions
         .filter((_, i) => acceptedActions.has(i))
         .filter((a) => {
           if (confirmedContactId && a.type === "create_contact") {
@@ -935,50 +942,118 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {analysis.suggestedActions.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">No CRM updates suggested.</p>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    These will be applied when you click below. Uncheck anything you don't want.
-                  </p>
-                  {analysis.suggestedActions.map((action, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => toggleAction(i)}
-                      className={`w-full text-left border rounded-md p-2 transition-colors ${
-                        acceptedActions.has(i) ? "bg-primary/5 border-primary/30" : "opacity-50"
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        {acceptedActions.has(i) ? (
-                          <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                        ) : (
-                          <X className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <Badge variant="outline" className="text-[10px] capitalize mb-1">
-                            {action.type.replace("_", " ")}
-                          </Badge>
-                          <div className="text-sm font-medium">{describeAction(action)}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">{action.reason}</div>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                  <Button
-                    onClick={handleApplyActions}
-                    disabled={isApplying || acceptedActions.size === 0}
-                    className="w-full gap-2"
+              <p className="text-xs text-muted-foreground">
+                Click any item to edit before applying. Uncheck what you don't want.
+              </p>
+
+              {editedActions.map((action, i) => {
+                const isEditing = editingActionIdx === i;
+                const isAccepted = acceptedActions.has(i);
+
+                if (isEditing) {
+                  return (
+                    <div key={i} className="border rounded-md p-2 bg-primary/5 border-primary/30 space-y-2">
+                      <Badge variant="outline" className="text-[10px] capitalize">
+                        {action.type.replace("_", " ")}
+                      </Badge>
+                      <ActionEditForm
+                        action={action}
+                        onSave={(updated) => {
+                          const next = [...editedActions];
+                          next[i] = updated;
+                          setEditedActions(next);
+                          setEditingActionIdx(null);
+                        }}
+                        onCancel={() => setEditingActionIdx(null)}
+                      />
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={i}
+                    className={`border rounded-md p-2 transition-colors ${
+                      isAccepted ? "bg-primary/5 border-primary/30" : "opacity-50"
+                    }`}
                   >
-                    {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {isApplying
-                      ? "Applying…"
-                      : `Apply ${acceptedActions.size} update${acceptedActions.size === 1 ? "" : "s"}`}
-                  </Button>
-                </>
-              )}
+                    <div className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleAction(i)}
+                        className="mt-0.5 shrink-0"
+                      >
+                        {isAccepted ? (
+                          <CheckCircle2 className="h-4 w-4 text-primary" />
+                        ) : (
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <Badge variant="outline" className="text-[10px] capitalize mb-1">
+                          {action.type.replace("_", " ")}
+                        </Badge>
+                        <div className="text-sm font-medium">{describeAction(action)}</div>
+                        {action.type === "log_activity" && action.notes && (
+                          <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{action.notes}</div>
+                        )}
+                        {action.type === "create_task" && (
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Due in {action.dueDaysFromNow} day{action.dueDaysFromNow === 1 ? "" : "s"}
+                            {action.description && ` · ${action.description.slice(0, 60)}`}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingActionIdx(i)}
+                        className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* + Add follow-up task — broker's most common manual addition */}
+              <button
+                type="button"
+                onClick={() => {
+                  const recipient = confirmedContact
+                    ? `${confirmedContact.firstName} ${confirmedContact.lastName}`
+                    : `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`.trim();
+                  const newTask: SuggestedAction = {
+                    type: "create_task",
+                    title: recipient ? `Follow up with ${recipient}` : "Follow up",
+                    description: "",
+                    dueDaysFromNow: 7,
+                    contactName: recipient || undefined,
+                    reason: "Manual follow-up reminder",
+                  };
+                  const next = [...editedActions, newTask];
+                  setEditedActions(next);
+                  // Auto-accept the new task and open it for editing
+                  const nextAccepted = new Set(acceptedActions);
+                  nextAccepted.add(next.length - 1);
+                  setAcceptedActions(nextAccepted);
+                  setEditingActionIdx(next.length - 1);
+                }}
+                className="w-full text-sm text-primary hover:bg-primary/5 border border-dashed border-primary/30 rounded-md py-2 transition-colors"
+              >
+                + Add follow-up task
+              </button>
+
+              <Button
+                onClick={handleApplyActions}
+                disabled={isApplying || acceptedActions.size === 0}
+                className="w-full gap-2"
+              >
+                {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {isApplying
+                  ? "Applying…"
+                  : `Apply ${acceptedActions.size} update${acceptedActions.size === 1 ? "" : "s"}`}
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -996,6 +1071,128 @@ function describeAction(a: SuggestedAction): string {
     case "create_task":
       return `Task: ${a.title}`;
   }
+}
+
+// Inline edit form for a suggested action — different fields per action type
+function ActionEditForm({
+  action,
+  onSave,
+  onCancel,
+}: {
+  action: SuggestedAction;
+  onSave: (updated: SuggestedAction) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<SuggestedAction>({ ...action });
+
+  return (
+    <div className="space-y-2 text-sm">
+      {draft.type === "log_activity" && (
+        <>
+          <div>
+            <label className="text-xs text-muted-foreground">Subject</label>
+            <input
+              type="text"
+              value={draft.subject}
+              onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+              className="w-full px-2 py-1 border rounded text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Notes</label>
+            <textarea
+              value={draft.notes}
+              onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+              rows={3}
+              className="w-full px-2 py-1 border rounded text-sm font-sans"
+            />
+          </div>
+        </>
+      )}
+      {draft.type === "create_task" && (
+        <>
+          <div>
+            <label className="text-xs text-muted-foreground">Task title</label>
+            <input
+              type="text"
+              value={draft.title}
+              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              className="w-full px-2 py-1 border rounded text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Description</label>
+            <textarea
+              value={draft.description ?? ""}
+              onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              rows={2}
+              className="w-full px-2 py-1 border rounded text-sm font-sans"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Due in (days)</label>
+            <input
+              type="number"
+              min={0}
+              value={draft.dueDaysFromNow}
+              onChange={(e) => setDraft({ ...draft, dueDaysFromNow: Number(e.target.value) || 0 })}
+              className="w-24 px-2 py-1 border rounded text-sm"
+            />
+          </div>
+        </>
+      )}
+      {draft.type === "create_contact" && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-muted-foreground">First</label>
+              <input
+                type="text"
+                value={draft.firstName}
+                onChange={(e) => setDraft({ ...draft, firstName: e.target.value })}
+                className="w-full px-2 py-1 border rounded text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">Last</label>
+              <input
+                type="text"
+                value={draft.lastName}
+                onChange={(e) => setDraft({ ...draft, lastName: e.target.value })}
+                className="w-full px-2 py-1 border rounded text-sm"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Email</label>
+            <input
+              type="email"
+              value={draft.email ?? ""}
+              onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+              className="w-full px-2 py-1 border rounded text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Company</label>
+            <input
+              type="text"
+              value={draft.company ?? ""}
+              onChange={(e) => setDraft({ ...draft, company: e.target.value })}
+              className="w-full px-2 py-1 border rounded text-sm"
+            />
+          </div>
+        </>
+      )}
+      <div className="flex gap-2 pt-1">
+        <Button size="sm" variant="outline" onClick={onCancel} className="h-7 text-xs">
+          Cancel
+        </Button>
+        <Button size="sm" onClick={() => onSave(draft)} className="h-7 text-xs">
+          Save
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function buildStylePrompt(profile: {
