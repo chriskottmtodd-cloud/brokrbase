@@ -15,6 +15,8 @@ import {
   Copy,
   Loader2,
   Mail,
+  Plus,
+  RefreshCw,
   Sparkles,
   User,
   X,
@@ -480,6 +482,28 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
     }
   };
 
+  // Reset everything for a fresh email — keeps the profile, tab, and loaded
+  // contacts but clears all input + result state. Used by the "Start new email"
+  // buttons at the top and bottom of the page.
+  const resetForNewEmail = () => {
+    setPasteContent("");
+    setIntent("");
+    setComposeThread("");
+    setComposeRecipientId(null);
+    setComposeRecipientSearch("");
+    setShowComposePicker(false);
+    setAnalysis(null);
+    setAcceptedActions(new Set());
+    setEditedActions([]);
+    setAppliedActionIdxs(new Set());
+    setEditingActionIdx(null);
+    setConfirmedContactId(null);
+    setShowSwapPicker(false);
+    setSwapSearch("");
+    // Scroll to top so the broker sees the empty input box right away
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const toggleAction = (idx: number) => {
     const next = new Set(acceptedActions);
     if (next.has(idx)) next.delete(idx);
@@ -609,17 +633,32 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
     }
   };
 
+  // Show the reset button only when there's something to reset
+  const hasContent = !!(pasteContent || intent || composeThread || composeRecipientId || analysis);
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
-      <div className="flex items-center gap-3">
-        <Mail className="h-6 w-6 text-muted-foreground" />
-        <div>
-          <h1 className="text-2xl font-semibold">Email Studio</h1>
-          <p className="text-sm text-muted-foreground">
-            Paste an email or describe what you want to say. Brokrbase figures out who you're talking to,
-            edits in your voice, logs the activity, and builds follow-up tasks. All of it.
-          </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Mail className="h-6 w-6 text-muted-foreground" />
+          <div>
+            <h1 className="text-2xl font-semibold">Email Studio</h1>
+            <p className="text-sm text-muted-foreground">
+              Paste an email or describe what you want to say. Brokrbase figures out who you're talking to,
+              edits in your voice, logs the activity, and builds follow-up tasks. All of it.
+            </p>
+          </div>
         </div>
+        {hasContent && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetForNewEmail}
+            className="gap-1 shrink-0"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> New email
+          </Button>
+        )}
       </div>
 
       {/* Sending-as banner */}
@@ -1096,6 +1135,22 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
               })()}
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* Big "Start a new email" CTA after applying — broker's natural next step */}
+      {analysis && appliedActionIdxs.size > 0 && (
+        <div className="border-2 border-dashed border-primary/30 rounded-lg p-4 bg-primary/5 flex flex-col items-center gap-2">
+          <p className="text-sm text-muted-foreground text-center">
+            Done with this one. Ready for the next?
+          </p>
+          <Button
+            onClick={resetForNewEmail}
+            size="lg"
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" /> Start a New Email
+          </Button>
         </div>
       )}
     </div>
