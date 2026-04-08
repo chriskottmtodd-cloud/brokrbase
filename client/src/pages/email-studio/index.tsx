@@ -110,12 +110,16 @@ ${profile?.company ? `- Company: ${profile.company}\n` : ""}${profile?.title ? `
       const taskBlock =
         mode === "compose"
           ? `Compose an email FROM ${senderName} TO ${recipient.firstName}. The intent is below. Use the broker's voice (rules above).`
-          : `Edit this draft email FROM ${senderName} TO ${recipient.firstName}. Polish it in the broker's voice (rules above). Do not change facts. Do not invent details.`;
+          : `The user pasted the contents of their email client below. Their unfinished draft (the email they're about to send) is at the TOP of the paste. Below the draft is the prior thread — typically separated by "On [date], [name] wrote:" or "From:" lines or "---" or quoted text starting with ">".
+
+Your job: edit ONLY the unfinished draft at the top, in the broker's voice (rules above). Use the prior thread for context — to understand who said what, what was promised, what's been discussed — but DO NOT edit, rewrite, or include the prior thread in your output. Return only the edited version of the broker's draft.
+
+Do not change facts. Do not invent details. If you're unsure where the draft ends and the prior thread begins, treat everything before the first "On … wrote:" / "From:" / "---" / ">" line as the draft.`;
 
       const inputBlock =
         mode === "compose"
           ? `INTENT (what ${senderName} wants the email to say):\n${intent}`
-          : `DRAFT TO EDIT:\n${draft}`;
+          : `EMAIL CLIENT PASTE (draft at top, prior thread below):\n${draft}`;
 
       const fullPrompt = `${stylePrompt}
 
@@ -125,7 +129,7 @@ ${senderBlock}
 
 ${recipientBlock}
 
-${thread.trim() ? `PRIOR EMAIL THREAD:\n${thread.trim()}\n\n` : ""}${taskBlock}
+${mode === "compose" && thread.trim() ? `PRIOR EMAIL THREAD:\n${thread.trim()}\n\n` : ""}${taskBlock}
 
 ${inputBlock}
 
@@ -475,37 +479,42 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Your draft
+                Your draft + the thread
               </CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
-                rows={10}
+                rows={14}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Paste your draft email here…"
+                placeholder="Paste the whole thing from your email client. Your unfinished draft at the top, the prior thread below it (the 'On Oct 12, Tom wrote:' part). Brokrbase will edit only your draft and use the rest as context."
               />
+              <p className="text-xs text-muted-foreground mt-2">
+                Tip: just copy the entire compose window from Gmail/Outlook and paste it here. No need to split anything.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Optional thread context */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Prior email thread (optional)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            rows={4}
-            value={thread}
-            onChange={(e) => setThread(e.target.value)}
-            placeholder="Paste any prior emails in the thread here (optional). Helps the AI understand the conversation."
-          />
-        </CardContent>
-      </Card>
+      {/* Optional thread context — only shown for Compose mode */}
+      {mode === "compose" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Prior email thread (optional)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              rows={4}
+              value={thread}
+              onChange={(e) => setThread(e.target.value)}
+              placeholder="Paste any prior emails in the thread here (optional). Helps the AI understand the conversation."
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Button onClick={handleGenerate} disabled={isProcessing || !recipient} className="gap-2 w-full" size="lg">
         {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
