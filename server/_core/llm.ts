@@ -272,6 +272,19 @@ const normalizeResponseFormat = ({
   };
 };
 
+// In-memory "Gemini is sick" cache. If Gemini fails, we remember it for 5 min
+// and skip straight to Claude on subsequent calls. Self-healing — once 5 min
+// pass with no Gemini calls, we try Gemini first again.
+let _geminiCooldownUntil = 0;
+const GEMINI_COOLDOWN_MS = 5 * 60 * 1000;
+
+function isGeminiInCooldown(): boolean {
+  return Date.now() < _geminiCooldownUntil;
+}
+function markGeminiSick(): void {
+  _geminiCooldownUntil = Date.now() + GEMINI_COOLDOWN_MS;
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
@@ -327,8 +340,22 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   // After exhausting retries on the primary model, fall through to the next
   // model in MODEL_CHAIN — useful when Gemini Flash is having a bad day.
   const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
-  const ATTEMPTS_PER_MODEL = 3;
+  const ATTEMPTS_PER_MODEL = 2; // Reduced from 3 — fewer tries before falling through
   let lastError: Error | null = null;
+
+  // If Gemini failed within the last 5 minutes, skip it entirely and go straight
+  // to Claude. Avoids 60+ second waits during a Gemini outage.
+  if (isGeminiInCooldown() && ENV.anthropicApiKey) {
+    console.log("[LLM] Gemini in cooldown — going straight to Claude");
+    try {
+      return await invokeClaude(messages, normalizedResponseFormat);
+    } catch (claudeErr) {
+      console.error("[LLM] Claude failed during Gemini cooldown:", claudeErr);
+      // Reset cooldown so we retry Gemini next time
+      _geminiCooldownUntil = 0;
+      // Fall through to the normal Gemini chain as a last resort
+    }
+  }
 
   for (const modelName of MODEL_CHAIN) {
     payload = buildPayload(modelName);
@@ -383,12 +410,17 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     }
   }
 
+  // All Gemini models failed — mark Gemini as sick so the next 5 minutes of
+  // requests skip Gemini entirely and go straight to Claude.
+  markGeminiSick();
+  console.warn("[LLM] All Gemini models exhausted — putting Gemini in 5-min cooldown");
+
   // ─── Final fallback: Anthropic Claude ─────────────────────────────────────
   // If both Gemini Flash and Pro have exhausted all retries, try Claude as a
   // last resort. Claude uses a different API format so we convert messages
   // and the response back into our InvokeResult shape.
   if (ENV.anthropicApiKey) {
-    console.warn("[LLM] All Gemini models exhausted, falling back to Claude Sonnet 4.5");
+    console.warn("[LLM] Falling back to Claude Sonnet 4.5");
     try {
       return await invokeClaude(messages, normalizedResponseFormat);
     } catch (claudeErr) {
