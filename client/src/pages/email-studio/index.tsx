@@ -105,6 +105,9 @@ export default function EmailStudio() {
   const [pasteContent, setPasteContent] = useState("");
   const [intent, setIntent] = useState("");
   const [composeThread, setComposeThread] = useState("");
+  const [composeRecipientId, setComposeRecipientId] = useState<number | null>(null);
+  const [composeRecipientSearch, setComposeRecipientSearch] = useState("");
+  const [showComposePicker, setShowComposePicker] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [acceptedActions, setAcceptedActions] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
@@ -117,6 +120,25 @@ export default function EmailStudio() {
   // backup when the server-side AI detection misses someone.
   const allContactsQuery = trpc.contacts.list.useQuery({ limit: 2000 });
   const allContacts = allContactsQuery.data ?? [];
+
+  // Compose mode: lookup the picked recipient
+  const composeRecipient = composeRecipientId
+    ? allContacts.find((c) => c.id === composeRecipientId) ?? null
+    : null;
+
+  // Filter contacts for compose picker search
+  const composeSearchResults = composeRecipientSearch.trim()
+    ? allContacts
+        .filter((c) => {
+          const q = composeRecipientSearch.toLowerCase();
+          return (
+            `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
+            (c.company ?? "").toLowerCase().includes(q) ||
+            (c.email ?? "").toLowerCase().includes(q)
+          );
+        })
+        .slice(0, 10)
+    : allContacts.slice(0, 10);
 
   const detectFromThread = trpc.contactEmails.detectFromThread.useMutation();
   const invokeLlm = trpc.callIntel.invokeLlm.useMutation();
@@ -141,6 +163,11 @@ export default function EmailStudio() {
       return;
     }
 
+    if (mode === "compose" && !composeRecipient) {
+      toast.error("Pick who you're emailing first.");
+      return;
+    }
+
     const inputText = mode === "edit" ? pasteContent : intent;
     const contextText = mode === "edit" ? pasteContent : composeThread;
 
@@ -154,23 +181,39 @@ export default function EmailStudio() {
     setAcceptedActions(new Set());
 
     try {
-      // Step 1: Auto-detect the recipient from the email content.
-      // We pass EVERYTHING the user typed (intent + thread + paste) so the AI
-      // can find names whether they're in a pasted email signature or in a
-      // compose-mode "draft an email to Troy" instruction.
-      const detectionContext = [
-        mode === "compose" ? intent : "",
-        mode === "compose" ? composeThread : "",
-        mode === "edit" ? pasteContent : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
+      // Step 1: Determine the recipient.
+      // - Compose mode: use the picked composeRecipient directly. No detection
+      //   needed since the broker explicitly chose who they're emailing.
+      // - Edit mode: auto-detect from the pasted thread (it has email addresses).
       let detected: Awaited<ReturnType<typeof detectFromThread.mutateAsync>> | null = null;
-      if (detectionContext.trim().length > 5) {
+
+      if (mode === "compose" && composeRecipient) {
+        // Synthesize a detection result from the picked contact — same shape
+        // the rest of the flow expects.
+        detected = {
+          primaryContactId: composeRecipient.id,
+          primaryContactName: `${composeRecipient.firstName} ${composeRecipient.lastName}`,
+          primaryContactEmail: composeRecipient.email ?? "",
+          primaryContactCompany: composeRecipient.company ?? "",
+          primaryContactPhone: composeRecipient.phone ?? "",
+          confidence: "high" as const,
+          reasoning: "Picked from your contacts in the recipient picker.",
+          matchedContact: {
+            id: composeRecipient.id,
+            firstName: composeRecipient.firstName,
+            lastName: composeRecipient.lastName,
+            company: composeRecipient.company ?? null,
+            email: composeRecipient.email ?? null,
+            isOwner: composeRecipient.isOwner ?? false,
+            isBuyer: composeRecipient.isBuyer ?? false,
+            lastContactedAt: composeRecipient.lastContactedAt ?? null,
+          },
+        };
+      } else if (mode === "edit" && pasteContent.trim().length > 5) {
+        // Edit mode: auto-detect from the pasted email thread.
         try {
           detected = await detectFromThread.mutateAsync({
-            thread: detectionContext,
+            thread: pasteContent,
           });
         } catch (err) {
           console.warn("Recipient auto-detection failed, will fall back to client-side match", err);
@@ -518,6 +561,72 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
         </TabsContent>
 
         <TabsContent value="compose" className="space-y-4 mt-4">
+          {/* Compose-mode recipient picker */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                Email To
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {composeRecipient ? (
+                <div className="flex items-center justify-between gap-2 border rounded-md p-3 bg-muted/30">
+                  <div>
+                    <div className="font-medium">
+                      {composeRecipient.firstName} {composeRecipient.lastName}
+                    </div>
+                    {composeRecipient.company && (
+                      <div className="text-xs text-muted-foreground">{composeRecipient.company}</div>
+                    )}
+                    {composeRecipient.email && (
+                      <div className="text-xs text-muted-foreground">{composeRecipient.email}</div>
+                    )}
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setComposeRecipientId(null)}>
+                    Change
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={composeRecipientSearch}
+                    onChange={(e) => {
+                      setComposeRecipientSearch(e.target.value);
+                      setShowComposePicker(true);
+                    }}
+                    onFocus={() => setShowComposePicker(true)}
+                    placeholder="Search contacts by name, email, or company…"
+                    className="w-full px-3 py-2 border rounded-md text-sm"
+                  />
+                  {showComposePicker && (
+                    <div className="max-h-60 overflow-y-auto border rounded-md">
+                      {composeSearchResults.length === 0 && (
+                        <p className="text-xs text-muted-foreground p-2">No matching contacts</p>
+                      )}
+                      {composeSearchResults.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setComposeRecipientId(c.id);
+                            setShowComposePicker(false);
+                            setComposeRecipientSearch("");
+                          }}
+                          className="block w-full text-left p-2 hover:bg-muted text-sm border-b last:border-b-0"
+                        >
+                          <div className="font-medium">{c.firstName} {c.lastName}</div>
+                          {c.company && <div className="text-xs text-muted-foreground">{c.company}</div>}
+                          {c.email && <div className="text-xs text-muted-foreground">{c.email}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
@@ -529,7 +638,7 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
                 rows={6}
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                placeholder="Describe what you want to say. Include who you're emailing (name + email if you have it), the deal, the ask, any commitments. e.g. 'Email Tom at Clearwater (tom@clearwater.com) about Pinecreek. Send the T12 by Friday and schedule a tour next week.'"
+                placeholder="Describe what you want to say. Bullet points or sentences — anything goes. Include the deal, the ask, any commitments. e.g. 'Send the T12 by Friday and schedule a tour next week.'"
               />
             </CardContent>
           </Card>
@@ -553,7 +662,7 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
 
       <Button
         onClick={handleGenerate}
-        disabled={isProcessing || !profileComplete}
+        disabled={isProcessing || !profileComplete || (mode === "compose" && !composeRecipient)}
         className="gap-2 w-full"
         size="lg"
       >
@@ -562,9 +671,11 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
           ? "Drafting + analyzing…"
           : !profileComplete
             ? "Fill in your Settings profile first"
-            : mode === "edit"
-              ? "Edit + Auto-Update CRM"
-              : "Compose + Auto-Update CRM"}
+            : mode === "compose" && !composeRecipient
+              ? "Pick who you're emailing first"
+              : mode === "edit"
+                ? "Edit + Auto-Update CRM"
+                : "Compose + Auto-Update CRM"}
       </Button>
 
       {/* Result */}
