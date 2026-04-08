@@ -132,6 +132,9 @@ export default function EmailStudio() {
   const [editingActionIdx, setEditingActionIdx] = useState<number | null>(null);
   // Working copy of edited suggested actions (lets the broker tweak before applying)
   const [editedActions, setEditedActions] = useState<SuggestedAction[]>([]);
+  // Indices of actions that have been successfully applied — shown in their
+  // collapsed/green "done" state so the broker knows what's saved.
+  const [appliedActionIdxs, setAppliedActionIdxs] = useState<Set<number>>(new Set());
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const profile = profileQuery.data;
@@ -175,6 +178,7 @@ export default function EmailStudio() {
     if (analysis) {
       setAcceptedActions(new Set(analysis.suggestedActions.map((_, i) => i)));
       setEditedActions(analysis.suggestedActions.map((a) => ({ ...a })));
+      setAppliedActionIdxs(new Set());
       // Default the confirmed contact to the AI's primary pick (or null if new)
       setConfirmedContactId(analysis.detectedRecipient.contactId);
       setShowSwapPicker(false);
@@ -491,18 +495,25 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
       // skip any "create_contact" action that targets the recipient — they
       // already exist, no need to make a duplicate.
       // Use editedActions so any in-place edits the broker made are applied.
+      // Skip already-applied actions so re-applying after adding a new task
+      // only fires the new ones.
+      const indicesToApply: number[] = [];
       const accepted = editedActions
-        .filter((_, i) => acceptedActions.has(i))
-        .filter((a) => {
+        .map((a, i) => ({ a, i }))
+        .filter(({ i }) => acceptedActions.has(i) && !appliedActionIdxs.has(i))
+        .filter(({ a }) => {
           if (confirmedContactId && a.type === "create_contact") {
             const recipientName = `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`
               .toLowerCase()
               .trim();
             const actionName = `${a.firstName} ${a.lastName}`.toLowerCase().trim();
-            // Skip the create-recipient action — broker already linked an existing contact
             if (recipientName === actionName) return false;
           }
           return true;
+        })
+        .map(({ a, i }) => {
+          indicesToApply.push(i);
+          return a;
         });
 
       // Track contacts we create so we can link them to subsequent activities/tasks.
@@ -580,6 +591,11 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
       utils.contacts.list.invalidate();
       utils.activities.list.invalidate();
       utils.tasks.list.invalidate();
+
+      // Mark these actions as applied so they collapse to the green "done" state
+      const nextApplied = new Set(appliedActionIdxs);
+      indicesToApply.forEach((i) => nextApplied.add(i));
+      setAppliedActionIdxs(nextApplied);
 
       const parts: string[] = [];
       if (createdCount) parts.push(`${createdCount} contact${createdCount > 1 ? "s" : ""}`);
@@ -949,6 +965,21 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
               {editedActions.map((action, i) => {
                 const isEditing = editingActionIdx === i;
                 const isAccepted = acceptedActions.has(i);
+                const isApplied = appliedActionIdxs.has(i);
+
+                // Applied actions: collapsed green "done" state — no edit, no checkbox toggle
+                if (isApplied) {
+                  return (
+                    <div
+                      key={i}
+                      className="border rounded-md px-2 py-1.5 bg-green-50 border-green-300 text-xs flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-700 shrink-0" />
+                      <span className="text-green-900 truncate">{describeAction(action)}</span>
+                      <span className="text-[10px] text-green-700 ml-auto shrink-0">Done</span>
+                    </div>
+                  );
+                }
 
                 if (isEditing) {
                   return (
@@ -1044,16 +1075,25 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
                 + Add follow-up task
               </button>
 
-              <Button
-                onClick={handleApplyActions}
-                disabled={isApplying || acceptedActions.size === 0}
-                className="w-full gap-2"
-              >
-                {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                {isApplying
-                  ? "Applying…"
-                  : `Apply ${acceptedActions.size} update${acceptedActions.size === 1 ? "" : "s"}`}
-              </Button>
+              {(() => {
+                // Count how many accepted actions are NOT yet applied
+                const pendingCount = Array.from(acceptedActions).filter((i) => !appliedActionIdxs.has(i)).length;
+                const totalApplied = appliedActionIdxs.size;
+                return (
+                  <Button
+                    onClick={handleApplyActions}
+                    disabled={isApplying || pendingCount === 0}
+                    className="w-full gap-2"
+                  >
+                    {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    {isApplying
+                      ? "Applying…"
+                      : pendingCount === 0 && totalApplied > 0
+                        ? `All ${totalApplied} updates applied ✓`
+                        : `Apply ${pendingCount} update${pendingCount === 1 ? "" : "s"}`}
+                  </Button>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
