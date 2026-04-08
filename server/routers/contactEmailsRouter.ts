@@ -92,8 +92,10 @@ export const contactEmailsRouter = router({
       const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
       const foundEmails = Array.from(new Set((input.thread.match(emailRegex) ?? []).map(e => e.toLowerCase())));
 
-      // Step 3: Build contact list for AI — include emails so AI can reason about who is who
-      const contactListStr = allContacts.slice(0, 300).map(c =>
+      // Step 3: Build contact list for AI — include emails so AI can reason about who is who.
+      // Bumped from 300 → 1000 so smaller CRMs (under 1k contacts) get full coverage.
+      // The client also runs a local fuzzy match as a backup for anything beyond this.
+      const contactListStr = allContacts.slice(0, 1000).map(c =>
         `${c.id}:${c.firstName} ${c.lastName}${c.company ? ` (${c.company})` : ""}${c.email ? ` <${c.email}>` : ""}`
       ).join("\n");
 

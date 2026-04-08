@@ -42,6 +42,64 @@ interface AnalysisResult {
   suggestedActions: SuggestedAction[];
 }
 
+// Local fuzzy match against the loaded contacts list. Used as a backup when
+// server-side AI detection misses someone (e.g. only first name visible, or
+// the contact is outside the 300 the AI sees).
+function fuzzyMatchContact(
+  query: { firstName?: string; lastName?: string; email?: string },
+  contacts: Array<{ id: number; firstName: string; lastName: string; email?: string | null; company?: string | null }>,
+): typeof contacts[0] | null {
+  if (!contacts.length) return null;
+
+  // 1. Exact email match (case-insensitive) — highest confidence
+  if (query.email?.trim()) {
+    const e = query.email.trim().toLowerCase();
+    const emailMatch = contacts.find((c) => (c.email ?? "").toLowerCase() === e);
+    if (emailMatch) return emailMatch;
+  }
+
+  const first = query.firstName?.trim().toLowerCase() ?? "";
+  const last = query.lastName?.trim().toLowerCase() ?? "";
+  if (!first && !last) return null;
+
+  // 2. Exact first + last
+  if (first && last) {
+    const exact = contacts.find(
+      (c) => c.firstName.toLowerCase() === first && c.lastName.toLowerCase() === last,
+    );
+    if (exact) return exact;
+  }
+
+  // 3. Exact first name only — if there's only one match, use it
+  if (first) {
+    const firstMatches = contacts.filter((c) => c.firstName.toLowerCase() === first);
+    if (firstMatches.length === 1) return firstMatches[0];
+    // If multiple matches and we have a last name hint, narrow by it
+    if (firstMatches.length > 1 && last) {
+      const narrowed = firstMatches.find((c) => c.lastName.toLowerCase().startsWith(last));
+      if (narrowed) return narrowed;
+    }
+  }
+
+  // 4. Exact last name only — if there's only one match, use it
+  if (last && !first) {
+    const lastMatches = contacts.filter((c) => c.lastName.toLowerCase() === last);
+    if (lastMatches.length === 1) return lastMatches[0];
+  }
+
+  // 5. Substring match in either field — desperation fallback
+  const fullQuery = `${first} ${last}`.trim();
+  if (fullQuery.length >= 3) {
+    const sub = contacts.find((c) => {
+      const full = `${c.firstName} ${c.lastName}`.toLowerCase();
+      return full.includes(fullQuery) || fullQuery.includes(full);
+    });
+    if (sub) return sub;
+  }
+
+  return null;
+}
+
 export default function EmailStudio() {
   const [mode, setMode] = useState<"edit" | "compose">("edit");
   const [pasteContent, setPasteContent] = useState("");
@@ -54,6 +112,11 @@ export default function EmailStudio() {
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const profile = profileQuery.data;
+
+  // Load ALL contacts client-side so we can do local fuzzy matching as a
+  // backup when the server-side AI detection misses someone.
+  const allContactsQuery = trpc.contacts.list.useQuery({ limit: 2000 });
+  const allContacts = allContactsQuery.data ?? [];
 
   const detectFromThread = trpc.contactEmails.detectFromThread.useMutation();
   const invokeLlm = trpc.callIntel.invokeLlm.useMutation();
@@ -91,16 +154,61 @@ export default function EmailStudio() {
     setAcceptedActions(new Set());
 
     try {
-      // Step 1: Auto-detect the recipient from the email content
-      // For Compose mode, only run detection if there's a thread to analyze
+      // Step 1: Auto-detect the recipient from the email content.
+      // We pass EVERYTHING the user typed (intent + thread + paste) so the AI
+      // can find names whether they're in a pasted email signature or in a
+      // compose-mode "draft an email to Troy" instruction.
+      const detectionContext = [
+        mode === "compose" ? intent : "",
+        mode === "compose" ? composeThread : "",
+        mode === "edit" ? pasteContent : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
       let detected: Awaited<ReturnType<typeof detectFromThread.mutateAsync>> | null = null;
-      if (contextText.trim().length > 10) {
+      if (detectionContext.trim().length > 5) {
         try {
           detected = await detectFromThread.mutateAsync({
-            thread: contextText,
+            thread: detectionContext,
           });
         } catch (err) {
-          console.warn("Recipient auto-detection failed, will fall back", err);
+          console.warn("Recipient auto-detection failed, will fall back to client-side match", err);
+        }
+      }
+
+      // Step 1b: If server-side detection didn't find a matched contact, try
+      // a client-side fuzzy match against the FULL contacts list (we loaded
+      // up to 2000 of them). This catches contacts the AI couldn't see in
+      // its 300-contact slice.
+      if (detected && !detected.matchedContact && detected.primaryContactName) {
+        const parts = detected.primaryContactName.trim().split(/\s+/);
+        const localMatch = fuzzyMatchContact(
+          {
+            firstName: parts[0],
+            lastName: parts.slice(1).join(" "),
+            email: detected.primaryContactEmail || undefined,
+          },
+          allContacts,
+        );
+        if (localMatch) {
+          console.log("[EmailStudio] Client-side fuzzy match found:", localMatch.firstName, localMatch.lastName);
+          // Mutate the detected object to include the local match
+          detected = {
+            ...detected,
+            matchedContact: {
+              id: localMatch.id,
+              firstName: localMatch.firstName,
+              lastName: localMatch.lastName,
+              company: localMatch.company ?? null,
+              email: localMatch.email ?? null,
+              isOwner: false,
+              isBuyer: false,
+              lastContactedAt: null,
+            },
+            confidence: "high" as const,
+            reasoning: detected.reasoning + " (matched via local fuzzy match)",
+          };
         }
       }
 
