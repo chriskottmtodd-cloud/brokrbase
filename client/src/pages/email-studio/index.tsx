@@ -79,6 +79,10 @@ export default function EmailStudio() {
   const profile = profileQuery.data;
 
   const handleGenerate = async () => {
+    if (!profileComplete) {
+      toast.error("Fill in your Settings profile first — Brokrbase needs to know your name and company.");
+      return;
+    }
     if (mode === "compose" && !intent.trim()) {
       toast.error("Describe what the email should say.");
       return;
@@ -88,7 +92,7 @@ export default function EmailStudio() {
       return;
     }
     if (!recipient) {
-      toast.error("Pick a recipient first.");
+      toast.error("Pick a recipient first — Brokrbase needs to know who you're emailing.");
       return;
     }
 
@@ -318,6 +322,11 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
     }
   };
 
+  // Profile completeness check — block generation if Settings aren't filled in
+  const profileComplete = !!(profile?.name?.trim() && profile?.company?.trim());
+  const senderDisplayName = profile?.name?.trim() || "(your name not set)";
+  const senderDisplayCompany = profile?.company?.trim() || "(company not set)";
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
       <div className="flex items-center gap-3">
@@ -328,6 +337,47 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
             Draft an email in your voice. Brokrbase logs the email, creates contacts, and builds follow-up tasks automatically.
           </p>
         </div>
+      </div>
+
+      {/* Sending-as banner — makes it impossible to forget the AI uses your profile */}
+      <div
+        className={`rounded-md border p-3 text-sm ${
+          profileComplete
+            ? "bg-primary/5 border-primary/20"
+            : "bg-yellow-50 border-yellow-300"
+        }`}
+      >
+        {profileComplete ? (
+          <div className="flex items-start gap-2">
+            <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium">
+                Sending as <span className="text-primary">{senderDisplayName}</span>
+                {profile?.title ? ` · ${profile.title}` : ""}
+                {profile?.company ? ` · ${profile.company}` : ""}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                The AI writes emails as you, in your voice, with your signature appended.{" "}
+                <a href="/settings" className="underline">Edit your profile</a>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2">
+            <X className="h-4 w-4 text-yellow-700 mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium text-yellow-900">
+                Your profile isn't filled in yet
+              </div>
+              <div className="text-xs text-yellow-800 mt-0.5">
+                Email Studio can't draft in your voice until you tell Brokrbase who you are.{" "}
+                <a href="/settings" className="underline font-semibold">
+                  Go to Settings →
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Recipient picker */}
@@ -516,9 +566,22 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
         </Card>
       )}
 
-      <Button onClick={handleGenerate} disabled={isProcessing || !recipient} className="gap-2 w-full" size="lg">
+      <Button
+        onClick={handleGenerate}
+        disabled={isProcessing || !recipient || !profileComplete}
+        className="gap-2 w-full"
+        size="lg"
+      >
         {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-        {isProcessing ? "Drafting…" : mode === "compose" ? "Compose Email" : "Edit in My Voice"}
+        {isProcessing
+          ? "Drafting…"
+          : !profileComplete
+            ? "Fill in your Settings profile first"
+            : !recipient
+              ? "Pick a recipient first"
+              : mode === "compose"
+                ? "Compose Email"
+                : "Edit in My Voice"}
       </Button>
 
       {/* Result */}
