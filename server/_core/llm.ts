@@ -383,5 +383,148 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     }
   }
 
+  // ─── Final fallback: Anthropic Claude ─────────────────────────────────────
+  // If both Gemini Flash and Pro have exhausted all retries, try Claude as a
+  // last resort. Claude uses a different API format so we convert messages
+  // and the response back into our InvokeResult shape.
+  if (ENV.anthropicApiKey) {
+    console.warn("[LLM] All Gemini models exhausted, falling back to Claude Sonnet 4.5");
+    try {
+      return await invokeClaude(messages, normalizedResponseFormat);
+    } catch (claudeErr) {
+      console.error("[LLM] Claude fallback also failed:", claudeErr);
+      // Throw the Gemini error since that's what users were originally hitting
+      throw lastError ?? claudeErr;
+    }
+  }
+
   throw lastError ?? new Error("LLM invoke failed after exhausting all models");
+}
+
+// ─── Claude (Anthropic) fallback ────────────────────────────────────────────
+async function invokeClaude(
+  messages: Message[],
+  responseFormat:
+    | { type: "json_schema"; json_schema: JsonSchema }
+    | { type: "text" }
+    | { type: "json_object" }
+    | undefined,
+): Promise<InvokeResult> {
+  // Anthropic format separates system message from user/assistant turns.
+  const systemParts: string[] = [];
+  const conversation: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  for (const msg of messages) {
+    const contentString =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content
+              .map((c) => (typeof c === "string" ? c : "text" in c ? c.text : ""))
+              .join("\n")
+          : (msg.content as { text?: string }).text ?? "";
+
+    if (msg.role === "system") {
+      systemParts.push(contentString);
+    } else if (msg.role === "user" || msg.role === "assistant") {
+      conversation.push({ role: msg.role, content: contentString });
+    }
+  }
+
+  // If a JSON response format was requested, append a hint to the system prompt
+  // since Claude doesn't have a native json_schema enforcement parameter.
+  if (responseFormat?.type === "json_schema" || responseFormat?.type === "json_object") {
+    systemParts.push(
+      "IMPORTANT: Respond with valid JSON only — no markdown, no code fences, no commentary outside the JSON object.",
+    );
+  }
+
+  // Make sure there's at least one user message (Anthropic requires it).
+  if (conversation.length === 0 || conversation[0].role !== "user") {
+    conversation.unshift({ role: "user", content: "Continue." });
+  }
+
+  const body: Record<string, unknown> = {
+    model: "claude-sonnet-4-5",
+    max_tokens: 8192,
+    messages: conversation,
+  };
+  if (systemParts.length > 0) {
+    body.system = systemParts.join("\n\n");
+  }
+
+  // Retry transient errors on Claude too (3 attempts).
+  const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504, 529]);
+  const MAX_ATTEMPTS = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": ENV.anthropicApiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (networkErr) {
+      lastError = networkErr instanceof Error ? networkErr : new Error(String(networkErr));
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
+        continue;
+      }
+      throw lastError;
+    }
+
+    if (response.ok) {
+      const data = (await response.json()) as {
+        content: Array<{ type: string; text?: string }>;
+        usage?: { input_tokens: number; output_tokens: number };
+      };
+      const textPart = data.content?.find((c) => c.type === "text")?.text ?? "";
+
+      // Convert Claude response → OpenAI-compatible InvokeResult
+      return {
+        id: "claude-fallback",
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: "claude-sonnet-4-5",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: textPart,
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: data.usage
+          ? {
+              prompt_tokens: data.usage.input_tokens,
+              completion_tokens: data.usage.output_tokens,
+              total_tokens: data.usage.input_tokens + data.usage.output_tokens,
+            }
+          : undefined,
+      } as unknown as InvokeResult;
+    }
+
+    const errorText = await response.text();
+    lastError = new Error(
+      `Claude fallback failed: ${response.status} ${response.statusText} – ${errorText}`,
+    );
+
+    if (!RETRYABLE_STATUSES.has(response.status) || attempt >= MAX_ATTEMPTS) {
+      throw lastError;
+    }
+
+    const backoffMs = Math.min(4000, 500 * Math.pow(2, attempt - 1));
+    console.warn(`[Claude] Got ${response.status} attempt ${attempt}/${MAX_ATTEMPTS}, retrying in ${backoffMs}ms…`);
+    await new Promise((r) => setTimeout(r, backoffMs));
+  }
+
+  throw lastError ?? new Error("Claude fallback failed after retries");
 }

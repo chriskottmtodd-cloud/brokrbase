@@ -11,6 +11,7 @@ export const ENV = {
   adminEmail: process.env.ADMIN_EMAIL ?? "",
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH ?? "",
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? "",
   enformionApName: process.env.ENFORMION_AP_NAME ?? "",
   enformionApPassword: process.env.ENFORMION_AP_PASSWORD ?? "",
