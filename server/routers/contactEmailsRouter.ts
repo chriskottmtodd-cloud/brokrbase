@@ -7,6 +7,7 @@ import {
   removeContactEmail,
   setPrimaryContactEmail,
   findContactByEmail,
+  findContactsByEmail,
   getContacts,
 } from "../db";
 
@@ -59,28 +60,46 @@ export const contactEmailsRouter = router({
       senderEmail: z.string().optional(), // explicit sender email for email-first matching
     }))
     .mutation(async ({ ctx, input }) => {
-      // Step 0: Email-first lookup — if caller provides explicit sender email, try it immediately
+      // Step 0: Email-first lookup — if caller provides an explicit sender email,
+      // try it immediately. If multiple contacts share that email (a common
+      // duplicate case), return ALL of them so the UI can let the broker pick.
       if (input.senderEmail) {
-        const directMatch = await findContactByEmail(input.senderEmail.toLowerCase().trim(), ctx.user.id);
-        if (directMatch) {
+        const directMatches = await findContactsByEmail(input.senderEmail.toLowerCase().trim(), ctx.user.id);
+        if (directMatches.length > 0) {
+          const primary = directMatches[0];
           return {
-            primaryContactId: directMatch.id,
-            primaryContactName: `${directMatch.firstName} ${directMatch.lastName}`,
-            primaryContactEmail: directMatch.email ?? input.senderEmail,
-            primaryContactCompany: directMatch.company ?? "",
-            primaryContactPhone: "",
+            primaryContactId: primary.id,
+            primaryContactName: `${primary.firstName} ${primary.lastName}`,
+            primaryContactEmail: primary.email ?? input.senderEmail,
+            primaryContactCompany: primary.company ?? "",
+            primaryContactPhone: primary.phone ?? "",
             confidence: "high" as const,
-            reasoning: "Direct email match from sender address.",
+            reasoning:
+              directMatches.length > 1
+                ? `Found ${directMatches.length} contacts with this email — pick the right one.`
+                : "Direct email match from sender address.",
             matchedContact: {
-              id: directMatch.id,
-              firstName: directMatch.firstName,
-              lastName: directMatch.lastName,
-              company: directMatch.company ?? null,
-              email: directMatch.email ?? null,
-              isOwner: directMatch.isOwner ?? null,
-              isBuyer: directMatch.isBuyer ?? null,
-              lastContactedAt: directMatch.lastContactedAt ?? null,
+              id: primary.id,
+              firstName: primary.firstName,
+              lastName: primary.lastName,
+              company: primary.company ?? null,
+              email: primary.email ?? null,
+              isOwner: primary.isOwner ?? null,
+              isBuyer: primary.isBuyer ?? null,
+              lastContactedAt: primary.lastContactedAt ?? null,
             },
+            // All matches for the email — useful when there are duplicates and
+            // the broker needs to disambiguate.
+            allEmailMatches: directMatches.map((c) => ({
+              id: c.id,
+              firstName: c.firstName,
+              lastName: c.lastName,
+              company: c.company ?? null,
+              email: c.email ?? null,
+              isOwner: c.isOwner ?? null,
+              isBuyer: c.isBuyer ?? null,
+              lastContactedAt: c.lastContactedAt ?? null,
+            })),
           };
         }
       }
@@ -191,25 +210,39 @@ If not found in CRM, set primaryContactId to null and fill in name/email/company
 
       // Step 5: Hard email match — AI identified the person, now use THEIR specific email
       // for a deterministic lookup. Email is always more reliable than an AI-guessed ID.
-      // If the AI extracted an email for the primary contact and it exists in the CRM,
-      // that contact wins — regardless of what ID the AI guessed.
+      // If multiple contacts share that email, return all of them so the broker can pick.
       if (result.primaryContactEmail) {
-        const emailMatch = await findContactByEmail(result.primaryContactEmail.toLowerCase().trim(), ctx.user.id);
-        if (emailMatch) {
+        const emailMatches = await findContactsByEmail(result.primaryContactEmail.toLowerCase().trim(), ctx.user.id);
+        if (emailMatches.length > 0) {
+          const primary = emailMatches[0];
           return {
             ...result,
-            primaryContactId: emailMatch.id,
-            confidence: "high" as const, // email match is always high confidence
+            primaryContactId: primary.id,
+            confidence: "high" as const,
+            reasoning:
+              emailMatches.length > 1
+                ? `Found ${emailMatches.length} contacts with this email — pick the right one.`
+                : result.reasoning,
             matchedContact: {
-              id: emailMatch.id,
-              firstName: emailMatch.firstName,
-              lastName: emailMatch.lastName,
-              company: emailMatch.company ?? null,
-              email: emailMatch.email ?? null,
-              isOwner: emailMatch.isOwner ?? null,
-              isBuyer: emailMatch.isBuyer ?? null,
-              lastContactedAt: emailMatch.lastContactedAt ?? null,
+              id: primary.id,
+              firstName: primary.firstName,
+              lastName: primary.lastName,
+              company: primary.company ?? null,
+              email: primary.email ?? null,
+              isOwner: primary.isOwner ?? null,
+              isBuyer: primary.isBuyer ?? null,
+              lastContactedAt: primary.lastContactedAt ?? null,
             },
+            allEmailMatches: emailMatches.map((c) => ({
+              id: c.id,
+              firstName: c.firstName,
+              lastName: c.lastName,
+              company: c.company ?? null,
+              email: c.email ?? null,
+              isOwner: c.isOwner ?? null,
+              isBuyer: c.isBuyer ?? null,
+              lastContactedAt: c.lastContactedAt ?? null,
+            })),
           };
         }
       }

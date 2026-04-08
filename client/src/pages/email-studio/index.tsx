@@ -27,6 +27,14 @@ type SuggestedAction =
   | { type: "log_activity"; activityType: "call" | "email" | "meeting" | "note"; subject: string; notes: string; contactName?: string; reason: string }
   | { type: "create_task"; title: string; description?: string; dueDaysFromNow: number; contactName?: string; reason: string };
 
+interface MatchedContactSummary {
+  id: number;
+  firstName: string;
+  lastName: string;
+  company: string | null;
+  email: string | null;
+}
+
 interface AnalysisResult {
   emailBody: string;
   detectedRecipient: {
@@ -39,6 +47,9 @@ interface AnalysisResult {
     reasoning: string;
     isExisting: boolean;
   };
+  // When multiple contacts match (e.g. duplicates of Troy with the same email),
+  // they all show up here so the broker can pick the right one.
+  allMatches: MatchedContactSummary[];
   suggestedActions: SuggestedAction[];
 }
 
@@ -112,6 +123,11 @@ export default function EmailStudio() {
   const [acceptedActions, setAcceptedActions] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  // Recipient confirmation state — if AI picked the wrong contact (or there
+  // are multiple matches), the broker can swap by picking a different one.
+  const [confirmedContactId, setConfirmedContactId] = useState<number | null>(null);
+  const [showSwapPicker, setShowSwapPicker] = useState(false);
+  const [swapSearch, setSwapSearch] = useState("");
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const profile = profileQuery.data;
@@ -154,8 +170,32 @@ export default function EmailStudio() {
   useEffect(() => {
     if (analysis) {
       setAcceptedActions(new Set(analysis.suggestedActions.map((_, i) => i)));
+      // Default the confirmed contact to the AI's primary pick (or null if new)
+      setConfirmedContactId(analysis.detectedRecipient.contactId);
+      setShowSwapPicker(false);
+      setSwapSearch("");
     }
   }, [analysis]);
+
+  // The confirmed contact is what gets used when applying actions. Defaults
+  // to the AI's pick but can be overridden by the broker via the swap UI.
+  const confirmedContact = confirmedContactId
+    ? allContacts.find((c) => c.id === confirmedContactId) ?? null
+    : null;
+
+  // Filter contacts for the swap picker search
+  const swapSearchResults = swapSearch.trim()
+    ? allContacts
+        .filter((c) => {
+          const q = swapSearch.toLowerCase();
+          return (
+            `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
+            (c.company ?? "").toLowerCase().includes(q) ||
+            (c.email ?? "").toLowerCase().includes(q)
+          );
+        })
+        .slice(0, 10)
+    : allContacts.slice(0, 10);
 
   const handleGenerate = async () => {
     if (!profileComplete) {
@@ -211,9 +251,25 @@ export default function EmailStudio() {
         };
       } else if (mode === "edit" && pasteContent.trim().length > 5) {
         // Edit mode: auto-detect from the pasted email thread.
+        // CRITICAL: pre-extract emails from the thread and pass the most likely
+        // sender email to detection. Without this, detectFromThread skips its
+        // most reliable step (Step 0: exact email lookup) and falls back to
+        // less reliable AI-by-name matching.
+        const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+        const emailsInThread = Array.from(
+          new Set((pasteContent.match(emailRegex) ?? []).map((e) => e.toLowerCase().trim())),
+        );
+        // Skip the broker's own email — they're the sender, not the recipient
+        const myEmail = profile?.email?.toLowerCase().trim();
+        const candidateEmails = emailsInThread.filter((e) => e !== myEmail);
+        // The first candidate email is most likely the recipient (the person
+        // who sent the email the broker is replying to)
+        const senderEmail = candidateEmails[0];
+
         try {
           detected = await detectFromThread.mutateAsync({
             thread: pasteContent,
+            senderEmail: senderEmail || undefined,
           });
         } catch (err) {
           console.warn("Recipient auto-detection failed, will fall back to client-side match", err);
@@ -328,6 +384,33 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
       const cleaned = text.replace(/^```json\s*|\s*```$/g, "").trim();
       const parsed = JSON.parse(cleaned);
 
+      // Detection might return multiple matches when duplicates exist (e.g.
+      // two Troys with the same email). Pull them out so the UI can show all.
+      // The shape comes from the server's allEmailMatches field — fall back to
+      // a single-element array if only one matchedContact came back.
+      const detectedAny = detected as
+        | (typeof detected & { allEmailMatches?: MatchedContactSummary[] })
+        | null;
+      const allMatches: MatchedContactSummary[] = detectedAny?.allEmailMatches?.length
+        ? detectedAny.allEmailMatches.map((c) => ({
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            company: c.company ?? null,
+            email: c.email ?? null,
+          }))
+        : detected?.matchedContact
+          ? [
+              {
+                id: detected.matchedContact.id,
+                firstName: detected.matchedContact.firstName,
+                lastName: detected.matchedContact.lastName,
+                company: detected.matchedContact.company ?? null,
+                email: detected.matchedContact.email ?? null,
+              },
+            ]
+          : [];
+
       // Merge AI's parsed result with detection metadata
       const result: AnalysisResult = {
         emailBody: parsed.emailBody,
@@ -341,6 +424,7 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
           reasoning: detected?.reasoning ?? "",
           isExisting: !!detected?.matchedContact?.id,
         },
+        allMatches,
         suggestedActions: parsed.suggestedActions ?? [],
       };
 
@@ -397,15 +481,33 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
     if (!analysis) return;
     setIsApplying(true);
     try {
-      const accepted = analysis.suggestedActions.filter((_, i) => acceptedActions.has(i));
+      // If the broker confirmed an existing contact (via auto-detect or swap),
+      // skip any "create_contact" action that targets the recipient — they
+      // already exist, no need to make a duplicate.
+      const accepted = analysis.suggestedActions
+        .filter((_, i) => acceptedActions.has(i))
+        .filter((a) => {
+          if (confirmedContactId && a.type === "create_contact") {
+            const recipientName = `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`
+              .toLowerCase()
+              .trim();
+            const actionName = `${a.firstName} ${a.lastName}`.toLowerCase().trim();
+            // Skip the create-recipient action — broker already linked an existing contact
+            if (recipientName === actionName) return false;
+          }
+          return true;
+        });
 
-      // Track contacts we create so we can link them to subsequent activities/tasks
+      // Track contacts we create so we can link them to subsequent activities/tasks.
+      // Seed with the broker-confirmed contact (or AI's pick if not confirmed).
       const nameToId = new Map<string, number>();
-      if (analysis.detectedRecipient.contactId) {
-        nameToId.set(
-          `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`.toLowerCase().trim(),
-          analysis.detectedRecipient.contactId,
-        );
+      const linkedRecipientId = confirmedContactId ?? analysis.detectedRecipient.contactId;
+      if (linkedRecipientId) {
+        const c = confirmedContact ?? null;
+        const key = c
+          ? `${c.firstName} ${c.lastName}`.toLowerCase().trim()
+          : `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`.toLowerCase().trim();
+        nameToId.set(key, linkedRecipientId);
       }
 
       let createdCount = 0;
@@ -433,9 +535,9 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
       }
 
       const resolveContactId = (name?: string): number | undefined => {
-        if (!name) return analysis.detectedRecipient.contactId ?? undefined;
+        if (!name) return linkedRecipientId ?? undefined;
         const id = nameToId.get(name.toLowerCase().trim());
-        return id ?? analysis.detectedRecipient.contactId ?? undefined;
+        return id ?? linkedRecipientId ?? undefined;
       };
 
       // 2. Log activities
@@ -535,8 +637,8 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
 
       <Tabs value={mode} onValueChange={(v) => setMode(v as "edit" | "compose")}>
         <TabsList>
-          <TabsTrigger value="edit">Edit a Draft</TabsTrigger>
-          <TabsTrigger value="compose">Compose from Notes</TabsTrigger>
+          <TabsTrigger value="edit">Edit a Reply</TabsTrigger>
+          <TabsTrigger value="compose">Compose New Email</TabsTrigger>
         </TabsList>
 
         <TabsContent value="edit" className="space-y-4 mt-4">
@@ -691,31 +793,135 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {/* Recipient confirmation card — shows the detected contact (or
+                  multiple matches when there are duplicates), with a "Wrong
+                  person?" swap option to let the broker pick a different one. */}
               {analysis.detectedRecipient.firstName && (
-                <div className="border rounded-md p-2 bg-muted/30 text-xs flex items-start gap-2">
-                  <User className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                  <div>
-                    <div>
-                      <span className="text-muted-foreground">To: </span>
-                      <span className="font-medium">
-                        {analysis.detectedRecipient.firstName} {analysis.detectedRecipient.lastName}
-                      </span>
-                      {analysis.detectedRecipient.company && (
-                        <span className="text-muted-foreground"> · {analysis.detectedRecipient.company}</span>
-                      )}
-                      {analysis.detectedRecipient.email && (
-                        <span className="text-muted-foreground"> · {analysis.detectedRecipient.email}</span>
-                      )}
+                <div className="border rounded-md p-3 bg-muted/30 text-sm space-y-2">
+                  {/* Confirmed contact pill */}
+                  {confirmedContact ? (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">
+                            <span className="text-muted-foreground font-normal">To: </span>
+                            {confirmedContact.firstName} {confirmedContact.lastName}
+                            {confirmedContact.company && (
+                              <span className="text-muted-foreground font-normal"> · {confirmedContact.company}</span>
+                            )}
+                          </div>
+                          {confirmedContact.email && (
+                            <div className="text-xs text-muted-foreground">{confirmedContact.email}</div>
+                          )}
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Existing contact · email will log to this record
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowSwapPicker(!showSwapPicker)}
+                        className="text-xs h-7 shrink-0"
+                      >
+                        {showSwapPicker ? "Cancel" : "Wrong person?"}
+                      </Button>
                     </div>
-                    <div className="text-muted-foreground mt-0.5">
-                      {analysis.detectedRecipient.isExisting ? (
-                        <>Existing contact in your CRM</>
-                      ) : (
-                        <>New contact — will be created when you apply updates</>
-                      )}
-                      {analysis.detectedRecipient.reasoning && ` · ${analysis.detectedRecipient.reasoning}`}
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <X className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            <span className="text-muted-foreground font-normal">To: </span>
+                            {analysis.detectedRecipient.firstName} {analysis.detectedRecipient.lastName}
+                            {analysis.detectedRecipient.company && (
+                              <span className="text-muted-foreground font-normal"> · {analysis.detectedRecipient.company}</span>
+                            )}
+                          </div>
+                          {analysis.detectedRecipient.email && (
+                            <div className="text-xs text-muted-foreground">{analysis.detectedRecipient.email}</div>
+                          )}
+                          <div className="text-xs text-yellow-700 mt-0.5">
+                            Not found in CRM — will be created as new contact
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowSwapPicker(!showSwapPicker)}
+                        className="text-xs h-7 shrink-0"
+                      >
+                        {showSwapPicker ? "Cancel" : "Pick existing"}
+                      </Button>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Multiple-match list — when 2+ contacts share the email */}
+                  {analysis.allMatches.length > 1 && !showSwapPicker && (
+                    <div className="border-t pt-2 mt-2">
+                      <p className="text-xs text-muted-foreground mb-1.5">
+                        Found {analysis.allMatches.length} contacts with this email — pick the right one:
+                      </p>
+                      <div className="space-y-1">
+                        {analysis.allMatches.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setConfirmedContactId(c.id)}
+                            className={`block w-full text-left text-xs p-2 rounded border transition-colors ${
+                              confirmedContactId === c.id
+                                ? "bg-primary/10 border-primary/40"
+                                : "bg-background border-border hover:bg-muted/50"
+                            }`}
+                          >
+                            <div className="font-medium">
+                              {c.firstName} {c.lastName}
+                            </div>
+                            {c.company && <div className="text-muted-foreground">{c.company}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Swap picker — full search across all contacts */}
+                  {showSwapPicker && (
+                    <div className="border-t pt-2 mt-2 space-y-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={swapSearch}
+                        onChange={(e) => setSwapSearch(e.target.value)}
+                        placeholder="Search by name, email, or company…"
+                        className="w-full px-2 py-1.5 border rounded text-xs"
+                      />
+                      <div className="max-h-48 overflow-y-auto border rounded">
+                        {swapSearchResults.length === 0 && (
+                          <p className="text-xs text-muted-foreground p-2">No matching contacts</p>
+                        )}
+                        {swapSearchResults.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setConfirmedContactId(c.id);
+                              setShowSwapPicker(false);
+                              setSwapSearch("");
+                              toast.success(`Switched to ${c.firstName} ${c.lastName}`);
+                            }}
+                            className="block w-full text-left p-2 hover:bg-muted text-xs border-b last:border-b-0"
+                          >
+                            <div className="font-medium">{c.firstName} {c.lastName}</div>
+                            {c.company && <div className="text-muted-foreground">{c.company}</div>}
+                            {c.email && <div className="text-muted-foreground">{c.email}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <pre className="whitespace-pre-wrap text-sm font-sans">{finalEmail}</pre>

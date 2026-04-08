@@ -48,25 +48,59 @@ export async function setPrimaryContactEmail(id: number, contactId: number, user
   await db.update(contactEmails).set({ isPrimary: true }).where(eq(contactEmails.id, id));
 }
 
-/** Find a contact by any of their stored emails (primary email field OR contact_emails table) */
-export async function findContactByEmail(email: string, userId: number) {
+/** Find ALL contacts that have a given email — handles duplicates where the
+ *  same email shows up on multiple contact records (which happens when a
+ *  contact gets duplicated). Checks both the primary email field AND the
+ *  contact_emails alternate-email table. Whitespace-tolerant, case-insensitive.
+ */
+export async function findContactsByEmail(email: string, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   const emailLower = email.toLowerCase().trim();
-  // Check primary email field first
+  if (!emailLower) return [];
+
+  const cols = {
+    id: contacts.id,
+    firstName: contacts.firstName,
+    lastName: contacts.lastName,
+    company: contacts.company,
+    email: contacts.email,
+    phone: contacts.phone,
+    isOwner: contacts.isOwner,
+    isBuyer: contacts.isBuyer,
+    lastContactedAt: contacts.lastContactedAt,
+  };
+
+  // Match against primary email field
   const byPrimary = await db
-    .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, company: contacts.company, email: contacts.email, isOwner: contacts.isOwner, isBuyer: contacts.isBuyer, lastContactedAt: contacts.lastContactedAt })
+    .select(cols)
     .from(contacts)
-    .where(and(eq(contacts.userId, userId), sql`LOWER(${contacts.email}) = ${emailLower}`))
-    .limit(1);
-  if (byPrimary.length > 0) return byPrimary[0];
-  // Check contact_emails table
+    .where(and(eq(contacts.userId, userId), sql`LOWER(TRIM(${contacts.email})) = ${emailLower}`));
+
+  // Match against contact_emails alt table
   const byAlt = await db
-    .select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, company: contacts.company, email: contacts.email, isOwner: contacts.isOwner, isBuyer: contacts.isBuyer, lastContactedAt: contacts.lastContactedAt })
+    .select(cols)
     .from(contactEmails)
     .innerJoin(contacts, eq(contactEmails.contactId, contacts.id))
-    .where(and(eq(contactEmails.userId, userId), sql`LOWER(${contactEmails.email}) = ${emailLower}`))
-    .limit(1);
-  if (byAlt.length > 0) return byAlt[0];
-  return null;
+    .where(and(eq(contactEmails.userId, userId), sql`LOWER(TRIM(${contactEmails.email})) = ${emailLower}`));
+
+  // Dedupe by contact id (a contact could appear in both)
+  const seen = new Set<number>();
+  const merged: typeof byPrimary = [];
+  for (const row of [...byPrimary, ...byAlt]) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      merged.push(row);
+    }
+  }
+  return merged;
+}
+
+/** Find a single contact by email — backwards-compatible wrapper.
+ *  Returns the first match or null. Use findContactsByEmail when you need
+ *  to handle duplicates explicitly.
+ */
+export async function findContactByEmail(email: string, userId: number) {
+  const matches = await findContactsByEmail(email, userId);
+  return matches.length > 0 ? matches[0] : null;
 }
