@@ -35,14 +35,12 @@ export function GlobalSearch() {
 
   const contacts = data?.contacts ?? [];
   const properties = data?.properties ?? [];
-  const listings = data?.listings ?? [];
-  const totalResults = contacts.length + properties.length + listings.length;
+  const totalResults = contacts.length + properties.length;
 
   // Build flat navigable list for keyboard nav
   type ResultItem =
     | { kind: "contact"; id: number; label: string; sub: string }
-    | { kind: "property"; id: number; label: string; sub: string }
-    | { kind: "listing"; id: number; label: string; sub: string };
+    | { kind: "property"; id: number; label: string; sub: string };
 
   const flatItems: ResultItem[] = [
     ...contacts.map((c) => ({
@@ -57,18 +55,11 @@ export function GlobalSearch() {
       label: p.name,
       sub: [p.city, propertyTypeLabel[p.propertyType ?? ""] ?? p.propertyType, p.unitCount ? `${p.unitCount}u` : ""].filter(Boolean).join(" · "),
     })),
-    ...listings.map((l) => ({
-      kind: "listing" as const,
-      id: l.id,
-      label: l.title,
-      sub: l.stage ?? "",
-    })),
   ];
 
   const navigate = useCallback((item: ResultItem) => {
     if (item.kind === "contact") setLocation(`/contacts/${item.id}`);
-    else if (item.kind === "property") setLocation(`/properties/${item.id}`);
-    else setLocation(`/listings/${item.id}`);
+    else setLocation(`/properties/${item.id}`);
     setOpen(false);
     setQuery("");
     setCursor(0);
@@ -225,7 +216,6 @@ export function GlobalSearch() {
                 <>
                   {renderSection("Contacts", <User className="h-3.5 w-3.5" />, flatItems.filter(i => i.kind === "contact"))}
                   {renderSection("Properties", <Building2 className="h-3.5 w-3.5" />, flatItems.filter(i => i.kind === "property"))}
-                  {renderSection("Listings", <Tag className="h-3.5 w-3.5" />, flatItems.filter(i => i.kind === "listing"))}
                 </>
               )}
             </div>

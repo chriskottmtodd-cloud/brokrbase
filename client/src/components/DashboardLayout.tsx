@@ -30,23 +30,14 @@ import { trpc } from "@/lib/trpc";
 import { VoiceMemoButton } from "./VoiceMemoButton";
 import {
   Activity,
-  Bell,
-  Bot,
   Building2,
-  Download,
-  GitBranch,
   LayoutDashboard,
   ListChecks,
   LogOut,
   Mail,
-  Map,
   PanelLeft,
-  Radar,
-  Tag,
-  TrendingUp,
-  Upload,
+  Settings as SettingsIcon,
   Users,
-  Eraser,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -58,21 +49,10 @@ const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
   { icon: Users, label: "Contacts", path: "/contacts" },
   { icon: Building2, label: "Properties", path: "/properties" },
-  { icon: Map, label: "Map View", path: "/map" },
-  { icon: Tag, label: "Listings", path: "/listings" },
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
   { icon: Activity, label: "Activity Log", path: "/activities" },
-  { icon: Bot, label: "AI Assistant", path: "/ai" },
   { icon: Mail, label: "Email Studio", path: "/email-studio" },
-  { icon: Bell, label: "Notifications", path: "/notifications" },
-  { icon: Radar, label: "Follow-Up Radar", path: "/follow-up-radar" },
-  { icon: Upload, label: "Import Properties", path: "/import-properties" },
-  { icon: Users, label: "Import Contacts", path: "/import-contacts" },
-  { icon: Upload, label: "Import Enriched File", path: "/import-enriched" },
-  { icon: Eraser, label: "Data Cleanup", path: "/data-cleanup" },
-  { icon: Download, label: "Data Export", path: "/export" },
-  { icon: TrendingUp, label: "Market Intel", path: "/market-intel" },
-  { icon: GitBranch, label: "Markets Config", path: "/markets" },
+  { icon: SettingsIcon, label: "Settings", path: "/settings" },
 ];
 
 // ─── Password Login Screen ───────────────────────────────────────────────────
@@ -333,12 +313,6 @@ function DashboardLayoutContent({
             </div>
             <div className="flex items-center gap-1">
               <GlobalSearch />
-              {unreadCount > 0 && (
-                <Button variant="ghost" size="icon" className="h-9 w-9 relative" onClick={() => setLocation("/tasks")}>
-                  <Bell className="h-4 w-4" />
-                  <span className="absolute top-1 right-1 h-2 w-2 bg-primary rounded-full" />
-                </Button>
-              )}
             </div>
           </div>
         )}

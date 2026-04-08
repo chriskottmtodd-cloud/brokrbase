@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   getActivities,
-  getDashboardListingPanels,
   getDashboardMetrics,
   getDueSoonTasks,
   getNotifications,
@@ -36,7 +35,4 @@ export const dashboardRouter = router({
 
   overdueContactsCount: protectedProcedure
     .query(({ ctx }) => getOverdueContactsCount(ctx.user.id)),
-
-  listingPanels: protectedProcedure
-    .query(({ ctx }) => getDashboardListingPanels(ctx.user.id)),
 });

@@ -51,32 +51,33 @@
   --card-foreground: oklch(0.18 0.02 60);
   --popover: oklch(1.0 0.004 80);
   --popover-foreground: oklch(0.18 0.02 60);
-  --primary: oklch(0.58 0.14 55);            /* rich amber/gold */
-  --primary-foreground: oklch(0.99 0.005 80);
-  --secondary: oklch(0.94 0.012 75);         /* warm light tan */
-  --secondary-foreground: oklch(0.25 0.02 60);
-  --muted: oklch(0.95 0.01 75);              /* very light warm gray */
-  --muted-foreground: oklch(0.50 0.02 60);   /* medium warm gray */
-  --accent: oklch(0.94 0.012 75);
-  --accent-foreground: oklch(0.25 0.02 60);
-  --destructive: oklch(0.55 0.22 25);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.88 0.015 75);            /* warm light border */
-  --input: oklch(0.96 0.01 75);
-  --ring: oklch(0.58 0.14 55);
-  --chart-1: oklch(0.58 0.14 55);            /* amber */
+  /* Brokrbase brand: NAI red on white, near-black text */
+  --primary: oklch(0.55 0.20 27);            /* NAI red #d03238 */
+  --primary-foreground: oklch(1.0 0 0);      /* white */
+  --secondary: oklch(0.96 0 0);              /* light gray */
+  --secondary-foreground: oklch(0.20 0 0);
+  --muted: oklch(0.97 0 0);                  /* very light gray */
+  --muted-foreground: oklch(0.45 0 0);       /* medium gray */
+  --accent: oklch(0.96 0 0);
+  --accent-foreground: oklch(0.20 0 0);
+  --destructive: oklch(0.55 0.20 27);
+  --destructive-foreground: oklch(1.0 0 0);
+  --border: oklch(0.90 0 0);                 /* light gray border */
+  --input: oklch(0.97 0 0);
+  --ring: oklch(0.55 0.20 27);
+  --chart-1: oklch(0.55 0.20 27);            /* NAI red */
   --chart-2: oklch(0.52 0.16 200);           /* teal */
   --chart-3: oklch(0.55 0.14 150);           /* green */
   --chart-4: oklch(0.50 0.18 280);           /* purple */
-  --chart-5: oklch(0.55 0.22 25);            /* red */
-  --sidebar: oklch(0.16 0.025 55);           /* deep espresso sidebar */
-  --sidebar-foreground: oklch(0.90 0.01 75);
-  --sidebar-primary: oklch(0.68 0.14 60);    /* warm amber accent */
-  --sidebar-primary-foreground: oklch(0.12 0.02 55);
-  --sidebar-accent: oklch(0.28 0.04 55);           /* subtle warm tint — active item bg */
-  --sidebar-accent-foreground: oklch(0.92 0.01 75); /* near-white — readable on dark tint */
-  --sidebar-border: oklch(0.26 0.025 55);
-  --sidebar-ring: oklch(0.68 0.14 60);
+  --chart-5: oklch(0.65 0.18 60);            /* amber */
+  --sidebar: oklch(0.20 0 0);                /* near-black sidebar */
+  --sidebar-foreground: oklch(0.92 0 0);
+  --sidebar-primary: oklch(0.55 0.20 27);    /* NAI red accent */
+  --sidebar-primary-foreground: oklch(1.0 0 0);
+  --sidebar-accent: oklch(0.30 0 0);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.28 0 0);
+  --sidebar-ring: oklch(0.55 0.20 27);
 }
 
 @layer base {

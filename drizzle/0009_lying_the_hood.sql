@@ -1,1 +1,0 @@
-ALTER TABLE `properties` MODIFY COLUMN `status` enum('researching','prospecting','seller','listed','recently_sold') NOT NULL DEFAULT 'researching';

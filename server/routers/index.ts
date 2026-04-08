@@ -4,24 +4,13 @@ import { systemRouter } from "../_core/systemRouter";
 import { publicProcedure, router } from "../_core/trpc";
 import { contactsRouter } from "./contacts";
 import { propertiesRouter } from "./properties";
-import { listingsRouter } from "./listings";
 import { activitiesRouter } from "./activities";
 import { tasksRouter } from "./tasks";
 import { notificationsRouter, dashboardRouter } from "./notifications";
-import { aiRouter, smartLogRouter, callIntelRouter } from "./ai";
-import { followUpRouter } from "./followup";
-import { buyerCriteriaRouter } from "./buyerCriteria";
-import { listingAgentRouter } from "./listingAgent";
+import { aiRouter, callIntelRouter } from "./ai";
 import { contactLinksRouter } from "./contactLinks";
-import { buyerIntelRouter } from "./buyerIntel";
 import { contactEmailsRouter } from "./contactEmailsRouter";
-import { dataCleanupRouter } from "./dataCleanup";
-import { exportRouter } from "./export";
-import { marketsRouter } from "./markets";
-import { marketIntelRouter } from "./marketIntel";
 import { usersRouter } from "./users";
-import { unitTypesRouter } from "./unitTypes";
-import { ownerResearchRouter } from "./ownerResearch";
 import { voiceMemoRouter } from "./voiceMemo";
 
 export const appRouter = router({
@@ -36,27 +25,15 @@ export const appRouter = router({
   }),
   contacts: contactsRouter,
   properties: propertiesRouter,
-  listings: listingsRouter,
   activities: activitiesRouter,
   tasks: tasksRouter,
   notifications: notificationsRouter,
   dashboard: dashboardRouter,
   ai: aiRouter,
   callIntel: callIntelRouter,
-  followUp: followUpRouter,
-  smartLog: smartLogRouter,
-  buyerCriteria: buyerCriteriaRouter,
-  listingAgent: listingAgentRouter,
   contactLinks: contactLinksRouter,
-  buyerIntel: buyerIntelRouter,
   contactEmails: contactEmailsRouter,
-  dataCleanup: dataCleanupRouter,
-  export: exportRouter,
-  markets: marketsRouter,
-  marketIntel: marketIntelRouter,
   users: usersRouter,
-  unitTypes: unitTypesRouter,
-  ownerResearch: ownerResearchRouter,
   voiceMemo: voiceMemoRouter,
 });
 

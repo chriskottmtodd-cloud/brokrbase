@@ -1,1 +1,0 @@
-ALTER TABLE `contact_property_links` ADD `dealRole` enum('seller','buyer','buyers_broker','listing_agent','property_manager','attorney','lender','other');

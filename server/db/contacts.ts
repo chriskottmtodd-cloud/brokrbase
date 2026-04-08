@@ -4,7 +4,6 @@ import {
   InsertContact,
   contacts,
   contactPropertyLinks,
-  listings,
   properties,
 } from "../../drizzle/schema";
 import { getDb } from "./connection";
@@ -157,12 +156,12 @@ export async function normalizeContactNameCasing(userId: number): Promise<{ upda
   return { updated: needsFix.length, preview };
 }
 
-/** Global search across contacts, properties, and listings */
+/** Global search across contacts and properties */
 export async function globalSearch(userId: number, query: string) {
   const db = await getDb();
-  if (!db || !query.trim()) return { contacts: [], properties: [], listings: [] };
+  if (!db || !query.trim()) return { contacts: [], properties: [] };
   const s = `%${query.toLowerCase()}%`;
-  const [matchedContacts, matchedProperties, matchedListings] = await Promise.all([
+  const [matchedContacts, matchedProperties] = await Promise.all([
     db.select({ id: contacts.id, firstName: contacts.firstName, lastName: contacts.lastName, company: contacts.company, priority: contacts.priority })
       .from(contacts)
       .where(and(
@@ -188,16 +187,8 @@ export async function globalSearch(userId: number, query: string) {
       ))
       .orderBy(desc(properties.updatedAt))
       .limit(6),
-    db.select({ id: listings.id, title: listings.title, stage: listings.stage, askingPrice: listings.askingPrice })
-      .from(listings)
-      .where(and(
-        eq(listings.userId, userId),
-        sql`LOWER(${listings.title}) LIKE ${s}`,
-      ))
-      .orderBy(desc(listings.updatedAt))
-      .limit(4),
   ]);
-  return { contacts: matchedContacts, properties: matchedProperties, listings: matchedListings };
+  return { contacts: matchedContacts, properties: matchedProperties };
 }
 
 export async function getContactById(id: number, userId: number) {

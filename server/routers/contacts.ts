@@ -12,7 +12,6 @@ import {
   normalizeContactNameCasing,
   updateContact,
   updateProperty,
-  findPropertyByOwnerName,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
@@ -211,21 +210,7 @@ export const contactsRouter = router({
           existingNames.add(fullName);
           if (row.email) existingEmails.add(row.email.toLowerCase());
 
-          let linkedPropertyId: number | undefined;
-          if (row.linkedPropertyOwnerName && insertResult?.insertId) {
-            const propId = await findPropertyByOwnerName(
-              ctx.user.id,
-              row.linkedPropertyOwnerName
-            );
-            if (propId) {
-              await updateProperty(propId, ctx.user.id, {
-                ownerId: insertResult.insertId,
-              });
-              linkedPropertyId = propId;
-              linked++;
-            }
-          }
-          results.push({ index, name, status: "ok", linkedPropertyId });
+          results.push({ index, name, status: "ok" });
         } catch (err) {
           results.push({ index, name, status: "error", error: String(err) });
         }

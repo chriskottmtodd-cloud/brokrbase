@@ -1,5 +1,4 @@
-import { eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { InsertUser, users } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import { getDb } from "./connection";
@@ -51,6 +50,13 @@ export async function getUserByEmail(email: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
@@ -83,4 +89,21 @@ export async function createUserWithPassword(data: {
     lastSignedIn: new Date(),
   });
   return getUserByEmail(data.email);
+}
+
+export async function updateUserProfile(
+  id: number,
+  data: {
+    name?: string | null;
+    company?: string | null;
+    title?: string | null;
+    phone?: string | null;
+    marketFocus?: string | null;
+    signature?: string | null;
+    voiceNotes?: string | null;
+  },
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(users).set(data).where(eq(users.id, id));
 }

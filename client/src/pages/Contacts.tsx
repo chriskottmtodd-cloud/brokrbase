@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect } from "react";
-import { DuplicateContactWarning, type DuplicateMatch } from "@/components/DuplicateContactWarning";
+type DuplicateMatch = { id: number; firstName: string; lastName: string; email?: string | null; phone?: string | null; company?: string | null };
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -364,12 +364,20 @@ export function AddContactModal({ open, onClose, onSuccess }: { open: boolean; o
           </div>
           <div className="space-y-1.5"><Label className="text-xs text-muted-foreground">Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})} className="bg-background border-border resize-none" rows={3} /></div>
           {dupMatches.length > 0 && (
-            <DuplicateContactWarning
-              matches={dupMatches}
-              onProceedAnyway={doCreate}
-              onCancel={handleClose}
-              isPending={createContact.isPending}
-            />
+            <div className="border border-amber-300 bg-amber-50 rounded-md p-3 text-sm">
+              <div className="font-medium text-amber-900 mb-1">Possible duplicates found</div>
+              <ul className="text-xs text-amber-800 space-y-0.5 mb-2">
+                {dupMatches.map((m) => (
+                  <li key={m.id}>{m.firstName} {m.lastName}{m.company ? ` (${m.company})` : ""}</li>
+                ))}
+              </ul>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={handleClose}>Cancel</Button>
+                <Button size="sm" onClick={doCreate} disabled={createContact.isPending}>
+                  Create anyway
+                </Button>
+              </div>
+            </div>
           )}
         </div>
         {dupMatches.length === 0 && (

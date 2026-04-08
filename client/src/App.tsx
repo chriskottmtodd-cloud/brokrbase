@@ -12,22 +12,10 @@ import Contacts from "./pages/Contacts";
 import ContactDetail from "./pages/ContactDetail";
 import Properties from "./pages/Properties";
 import PropertyDetail from "./pages/PropertyDetail";
-import MapView from "./pages/MapView";
-import Listings from "./pages/Listings";
-import ListingDetail from "./pages/ListingDetail";
 import Tasks from "./pages/Tasks";
 import ActivityLog from "./pages/ActivityLog";
-import AIAssistant from "./pages/ai-assistant";
-import Notifications from "./pages/Notifications";
-import FollowUpRadar from "./pages/FollowUpRadar";
-import ImportProperties from "./pages/ImportProperties";
-import ImportContacts from "./pages/ImportContacts";
-import ImportEnriched from "./pages/ImportEnriched";
 import EmailStudio from "./pages/email-studio";
-import DataCleanup from "./pages/DataCleanup";
-import DataExport from "./pages/DataExport";
-import MarketIntel from "./pages/MarketIntel";
-import MarketConfig from "./pages/MarketConfig";
+import Settings from "./pages/Settings";
 
 function Router() {
   return (
@@ -39,22 +27,10 @@ function Router() {
         <Route path="/contacts/:id" component={ContactDetail} />
         <Route path="/properties" component={Properties} />
         <Route path="/properties/:id" component={PropertyDetail} />
-        <Route path="/map" component={MapView} />
-        <Route path="/listings" component={Listings} />
-        <Route path="/listings/:id" component={ListingDetail} />
         <Route path="/tasks" component={Tasks} />
         <Route path="/activities" component={ActivityLog} />
-        <Route path="/ai" component={AIAssistant} />
         <Route path="/email-studio" component={EmailStudio} />
-        <Route path="/notifications" component={Notifications} />
-        <Route path="/follow-up-radar" component={FollowUpRadar} />
-        <Route path="/import-properties" component={ImportProperties} />
-        <Route path="/import-contacts" component={ImportContacts} />
-        <Route path="/import-enriched" component={ImportEnriched} />
-        <Route path="/data-cleanup" component={DataCleanup} />
-        <Route path="/export" component={DataExport} />
-        <Route path="/market-intel" component={MarketIntel} />
-        <Route path="/markets" component={MarketConfig} />
+        <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
@@ -67,8 +43,8 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1e1a15]">
-        <p className="text-gray-400">Loading...</p>
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <p className="text-gray-500">Loading...</p>
       </div>
     );
   }

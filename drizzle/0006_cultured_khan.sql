@@ -1,1 +1,0 @@
-ALTER TABLE `properties` MODIFY COLUMN `address` varchar(500);

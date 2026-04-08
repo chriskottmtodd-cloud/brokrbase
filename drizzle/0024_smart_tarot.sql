@@ -1,1 +1,0 @@
-ALTER TABLE `properties` MODIFY COLUMN `propertyType` enum('mhc','apartment','affordable_housing','self_storage','other') NOT NULL;
