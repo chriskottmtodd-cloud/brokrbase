@@ -52,24 +52,24 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1e1a15]">
+    <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="w-full max-w-sm mx-auto p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white">RE CRM</h1>
-          <p className="text-gray-400 mt-2">Commercial Real Estate CRM</p>
+          <h1 className="text-3xl font-bold" style={{ color: "#d03238" }}>Brokrbase</h1>
+          <p className="text-gray-500 mt-2">The CRM that updates itself.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === "register" && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Name
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-[#2a2520] border border-[#3a3530] rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 placeholder="Your name"
                 required
               />
@@ -77,28 +77,28 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Email
             </label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2520] border border-[#3a3530] rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               placeholder="you@email.com"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Password
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-[#2a2520] border border-[#3a3530] rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               placeholder="••••••••"
               required
               minLength={6}
@@ -106,13 +106,14 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
           </div>
 
           {error && (
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-red-600 text-sm">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2 px-4 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-medium rounded-md transition-colors"
+            className="w-full py-2 px-4 disabled:opacity-50 text-white font-medium rounded-md transition-colors"
+            style={{ backgroundColor: "#d03238" }}
           >
             {loading
               ? (mode === "register" ? "Creating account..." : "Signing in...")
@@ -120,16 +121,6 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
             }
           </button>
         </form>
-
-        <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
-            className="text-sm text-amber-500 hover:text-amber-400 transition-colors"
-          >
-            {mode === "login" ? "Need an account? Create one" : "Already have an account? Sign in"}
-          </button>
-        </div>
       </div>
     </div>
   );
