@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar-background: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  /* Warm Premium Light Theme — Cream / Espresso / Amber */
+  --radius: 0.5rem;
+  --background: oklch(0.98 0.008 80);        /* warm cream white */
+  --foreground: oklch(0.18 0.02 60);          /* deep espresso brown */
+  --card: oklch(1.0 0.004 80);               /* pure white cards */
+  --card-foreground: oklch(0.18 0.02 60);
+  --popover: oklch(1.0 0.004 80);
+  --popover-foreground: oklch(0.18 0.02 60);
+  --primary: oklch(0.58 0.14 55);            /* rich amber/gold */
+  --primary-foreground: oklch(0.99 0.005 80);
+  --secondary: oklch(0.94 0.012 75);         /* warm light tan */
+  --secondary-foreground: oklch(0.25 0.02 60);
+  --muted: oklch(0.95 0.01 75);              /* very light warm gray */
+  --muted-foreground: oklch(0.50 0.02 60);   /* medium warm gray */
+  --accent: oklch(0.94 0.012 75);
+  --accent-foreground: oklch(0.25 0.02 60);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.88 0.015 75);            /* warm light border */
+  --input: oklch(0.96 0.01 75);
+  --ring: oklch(0.58 0.14 55);
+  --chart-1: oklch(0.58 0.14 55);            /* amber */
+  --chart-2: oklch(0.52 0.16 200);           /* teal */
+  --chart-3: oklch(0.55 0.14 150);           /* green */
+  --chart-4: oklch(0.50 0.18 280);           /* purple */
+  --chart-5: oklch(0.55 0.22 25);            /* red */
+  --sidebar: oklch(0.16 0.025 55);           /* deep espresso sidebar */
+  --sidebar-foreground: oklch(0.90 0.01 75);
+  --sidebar-primary: oklch(0.68 0.14 60);    /* warm amber accent */
+  --sidebar-primary-foreground: oklch(0.12 0.02 55);
+  --sidebar-accent: oklch(0.28 0.04 55);           /* subtle warm tint — active item bg */
+  --sidebar-accent-foreground: oklch(0.92 0.01 75); /* near-white — readable on dark tint */
+  --sidebar-border: oklch(0.26 0.025 55);
+  --sidebar-ring: oklch(0.68 0.14 60);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+}
+/* Map pin active-ring pulse animation */
+@keyframes ping {
+  0%   { transform: scale(1);   opacity: 1; }
+  75%  { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* ── Mobile sidebar fixes ──────────────────────────────────────────────────── */
+/* Ensure the sidebar sheet has a solid background and sits above the overlay  */
+@media (max-width: 768px) {
+  /* Sidebar panel: solid dark background so text is always readable */
+  [data-sidebar="sidebar"] {
+    background-color: oklch(0.16 0.025 55) !important;
+    z-index: 60 !important;
+  }
+  /* Overlay sits below sidebar but above content */
+  [data-sidebar="overlay"] {
+    z-index: 55 !important;
+    background-color: rgba(0, 0, 0, 0.65) !important;
+  }
+  /* Force sidebar text to use the light sidebar-foreground color */
+  [data-sidebar="sidebar"] [data-sidebar="menu-button"] span {
+    color: oklch(0.90 0.01 75) !important;
+  }
+  [data-sidebar="sidebar"] [data-sidebar="menu-button"][data-active="true"] span {
+    color: oklch(0.98 0.005 80) !important;
+  }
+  /* Minimum 44px touch targets for sidebar menu items */
+  [data-sidebar="menu-button"] {
+    min-height: 44px !important;
+  }
+}

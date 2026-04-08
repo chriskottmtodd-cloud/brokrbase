@@ -1,0 +1,1 @@
+ALTER TABLE `contact_property_links` MODIFY COLUMN `dealRole` enum('owner','seller','buyer','buyers_broker','listing_agent','property_manager','attorney','lender','other');

@@ -1,0 +1,1 @@
+ALTER TABLE `contacts` ADD `notesUpdatedAt` timestamp;
