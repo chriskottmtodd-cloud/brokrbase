@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Tabs,
@@ -17,8 +15,8 @@ import {
   Copy,
   Loader2,
   Mail,
-  Search,
   Sparkles,
+  User,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,72 +25,64 @@ import { trpc } from "@/lib/trpc";
 type SuggestedAction =
   | { type: "create_contact"; firstName: string; lastName: string; email?: string; phone?: string; company?: string; reason: string }
   | { type: "log_activity"; activityType: "call" | "email" | "meeting" | "note"; subject: string; notes: string; contactName?: string; reason: string }
-  | { type: "create_task"; title: string; description?: string; dueDaysFromNow: number; contactName?: string; reason: string }
-  | { type: "update_contact"; contactName: string; field: string; newValue: string; reason: string };
+  | { type: "create_task"; title: string; description?: string; dueDaysFromNow: number; contactName?: string; reason: string };
 
 interface AnalysisResult {
   emailBody: string;
+  detectedRecipient: {
+    contactId: number | null;
+    firstName: string;
+    lastName: string;
+    email: string;
+    company: string;
+    confidence: "high" | "medium" | "low";
+    reasoning: string;
+    isExisting: boolean;
+  };
   suggestedActions: SuggestedAction[];
 }
 
 export default function EmailStudio() {
-  const [mode, setMode] = useState<"compose" | "edit">("compose");
-  const [draft, setDraft] = useState("");
+  const [mode, setMode] = useState<"edit" | "compose">("edit");
+  const [pasteContent, setPasteContent] = useState("");
   const [intent, setIntent] = useState("");
-  const [thread, setThread] = useState("");
-  const [recipientId, setRecipientId] = useState<number | null>(null);
-  const [recipientSearch, setRecipientSearch] = useState("");
-  const [showRecipientPicker, setShowRecipientPicker] = useState(false);
-  const [showCreateRecipient, setShowCreateRecipient] = useState(false);
-  const [newRecipient, setNewRecipient] = useState({ firstName: "", lastName: "", email: "", company: "" });
+  const [composeThread, setComposeThread] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [acceptedActions, setAcceptedActions] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
-  const recipientQuery = trpc.contacts.byId.useQuery(
-    { id: recipientId ?? 0 },
-    { enabled: !!recipientId },
-  );
-  const contactsListQuery = trpc.contacts.list.useQuery(
-    { search: recipientSearch || undefined, limit: 10 },
-    { enabled: showRecipientPicker },
-  );
+  const profile = profileQuery.data;
 
+  const detectFromThread = trpc.contactEmails.detectFromThread.useMutation();
   const invokeLlm = trpc.callIntel.invokeLlm.useMutation();
   const createContact = trpc.contacts.create.useMutation();
   const createActivity = trpc.activities.create.useMutation();
   const applyActions = trpc.callIntel.applyCallActions.useMutation();
   const utils = trpc.useUtils();
 
-  const recipient = recipientQuery.data;
+  // Profile completeness check
+  const profileComplete = !!(profile?.name?.trim() && profile?.company?.trim());
+  const senderDisplayName = profile?.name?.trim() || "(your name not set)";
 
-  // Reset accepted actions when a new analysis arrives
   useEffect(() => {
     if (analysis) {
-      // Auto-accept all by default
       setAcceptedActions(new Set(analysis.suggestedActions.map((_, i) => i)));
     }
   }, [analysis]);
 
-  const profile = profileQuery.data;
-
   const handleGenerate = async () => {
     if (!profileComplete) {
-      toast.error("Fill in your Settings profile first — Brokrbase needs to know your name and company.");
+      toast.error("Fill in your Settings profile first.");
       return;
     }
-    if (mode === "compose" && !intent.trim()) {
-      toast.error("Describe what the email should say.");
-      return;
-    }
-    if (mode === "edit" && !draft.trim()) {
-      toast.error("Paste a draft to edit.");
-      return;
-    }
-    if (!recipient) {
-      toast.error("Pick a recipient first — Brokrbase needs to know who you're emailing.");
+
+    const inputText = mode === "edit" ? pasteContent : intent;
+    const contextText = mode === "edit" ? pasteContent : composeThread;
+
+    if (!inputText.trim()) {
+      toast.error(mode === "edit" ? "Paste your draft + thread" : "Describe what to say");
       return;
     }
 
@@ -101,29 +91,48 @@ export default function EmailStudio() {
     setAcceptedActions(new Set());
 
     try {
-      const stylePrompt = buildStylePrompt(profile);
-      const recipientBlock = `RECIPIENT (the person you are writing TO):
-- Name: ${recipient.firstName} ${recipient.lastName}
-${recipient.company ? `- Company: ${recipient.company}\n` : ""}${recipient.email ? `- Email: ${recipient.email}\n` : ""}${recipient.isOwner ? "- Role: Property owner\n" : ""}${recipient.isBuyer ? "- Role: Active buyer\n" : ""}${recipient.notes ? `- Notes: ${recipient.notes}\n` : ""}`;
+      // Step 1: Auto-detect the recipient from the email content
+      // For Compose mode, only run detection if there's a thread to analyze
+      let detected: Awaited<ReturnType<typeof detectFromThread.mutateAsync>> | null = null;
+      if (contextText.trim().length > 10) {
+        try {
+          detected = await detectFromThread.mutateAsync({
+            thread: contextText,
+          });
+        } catch (err) {
+          console.warn("Recipient auto-detection failed, will fall back", err);
+        }
+      }
 
+      // Step 2: Build the email-generation prompt with detected recipient
+      const stylePrompt = buildStylePrompt(profile);
       const senderName = profile?.name?.trim() || "the broker";
-      const senderBlock = `SENDER (you are writing AS this person):
+
+      const recipientBlock = detected && detected.matchedContact
+        ? `RECIPIENT (the person you are writing TO — auto-detected from the thread):
+- Name: ${detected.matchedContact.firstName} ${detected.matchedContact.lastName}
+${detected.matchedContact.company ? `- Company: ${detected.matchedContact.company}\n` : ""}${detected.matchedContact.email ? `- Email: ${detected.matchedContact.email}\n` : ""}${detected.matchedContact.isOwner ? "- Role: Property owner\n" : ""}${detected.matchedContact.isBuyer ? "- Role: Active buyer\n" : ""}- This contact ALREADY EXISTS in the CRM (id: ${detected.matchedContact.id})`
+        : detected && detected.primaryContactName
+        ? `RECIPIENT (the person you are writing TO — extracted from the thread):
+- Name: ${detected.primaryContactName}
+${detected.primaryContactCompany ? `- Company: ${detected.primaryContactCompany}\n` : ""}${detected.primaryContactEmail ? `- Email: ${detected.primaryContactEmail}\n` : ""}- This contact does NOT exist in the CRM yet — it should be created.`
+        : `RECIPIENT: Could not auto-detect from the input. Use whatever name appears in the user's input.`;
+
+      const senderBlock = `SENDER (you are writing AS this person — they are the broker, never the recipient):
 - Name: ${senderName}
 ${profile?.company ? `- Company: ${profile.company}\n` : ""}${profile?.title ? `- Title: ${profile.title}\n` : ""}`;
 
       const taskBlock =
-        mode === "compose"
-          ? `Compose an email FROM ${senderName} TO ${recipient.firstName}. The intent is below. Use the broker's voice (rules above).`
-          : `The user pasted the contents of their email client below. Their unfinished draft (the email they're about to send) is at the TOP of the paste. Below the draft is the prior thread — typically separated by "On [date], [name] wrote:" or "From:" lines or "---" or quoted text starting with ">".
+        mode === "edit"
+          ? `The user pasted the contents of their email client below. Their unfinished draft (the email they're about to send) is at the TOP. Below the draft is the prior thread — typically separated by "On [date], [name] wrote:" or "From:" lines or quoted text starting with ">".
 
-Your job: edit ONLY the unfinished draft at the top, in the broker's voice (rules above). Use the prior thread for context — to understand who said what, what was promised, what's been discussed — but DO NOT edit, rewrite, or include the prior thread in your output. Return only the edited version of the broker's draft.
-
-Do not change facts. Do not invent details. If you're unsure where the draft ends and the prior thread begins, treat everything before the first "On … wrote:" / "From:" / "---" / ">" line as the draft.`;
+Your job: edit ONLY the unfinished draft at the top, in the broker's voice. Use the prior thread for context but do NOT include it in your output. Do not change facts. Do not invent details.`
+          : `Compose an email FROM ${senderName} TO the recipient. Use the broker's voice. The intent is below.`;
 
       const inputBlock =
-        mode === "compose"
-          ? `INTENT (what ${senderName} wants the email to say):\n${intent}`
-          : `EMAIL CLIENT PASTE (draft at top, prior thread below):\n${draft}`;
+        mode === "edit"
+          ? `EMAIL CLIENT PASTE (draft at top, prior thread below):\n${pasteContent}`
+          : `INTENT (what ${senderName} wants the email to say):\n${intent}\n\n${composeThread.trim() ? `PRIOR THREAD CONTEXT:\n${composeThread}` : ""}`;
 
       const fullPrompt = `${stylePrompt}
 
@@ -133,7 +142,7 @@ ${senderBlock}
 
 ${recipientBlock}
 
-${mode === "compose" && thread.trim() ? `PRIOR EMAIL THREAD:\n${thread.trim()}\n\n` : ""}${taskBlock}
+${taskBlock}
 
 ${inputBlock}
 
@@ -142,71 +151,66 @@ ${inputBlock}
 Return ONLY a valid JSON object with this exact structure (no markdown, no backticks, no commentary outside the JSON):
 
 {
-  "emailBody": "the complete email body, plain text, no greeting line on its own — the AI should include 'Hi [first name],' as line 1, then a blank line, then the body, then 'Thanks,' on its own line. Do NOT include the sender's name or signature — those are appended automatically.",
+  "emailBody": "the complete email body, plain text. Start with 'Hi [first name],' on its own line, then a blank line, then the body, then 'Thanks,' on its own line. Do NOT include the sender's name or signature — those are appended automatically.",
+  "detectedRecipient": {
+    "firstName": "${detected?.matchedContact?.firstName ?? detected?.primaryContactName?.split(" ")[0] ?? ""}",
+    "lastName": "${detected?.matchedContact?.lastName ?? detected?.primaryContactName?.split(" ").slice(1).join(" ") ?? ""}",
+    "email": "${detected?.matchedContact?.email ?? detected?.primaryContactEmail ?? ""}",
+    "company": "${detected?.matchedContact?.company ?? detected?.primaryContactCompany ?? ""}"
+  },
   "suggestedActions": [
-    {
-      "type": "create_contact",
-      "firstName": "string",
-      "lastName": "string",
-      "email": "string or empty",
-      "phone": "string or empty",
-      "company": "string or empty",
-      "reason": "why this contact should be created"
-    },
     {
       "type": "log_activity",
       "activityType": "email",
-      "subject": "short subject line for the activity log",
-      "notes": "1-2 sentence summary of what this email is about",
-      "contactName": "${recipient.firstName} ${recipient.lastName}",
-      "reason": "logging this outbound email"
-    },
-    {
-      "type": "create_task",
-      "title": "short follow-up task title",
-      "description": "what to do",
-      "dueDaysFromNow": 3,
-      "contactName": "name of the contact this task relates to",
-      "reason": "why this task should exist"
+      "subject": "short subject for the activity log entry",
+      "notes": "1-2 sentence summary of what this email is about and any commitments made",
+      "contactName": "first and last name of the recipient",
+      "reason": "logging this outbound email to the recipient's history"
     }
   ]
 }
 
-For suggestedActions: ALWAYS include at least one log_activity action for this email itself (so the email gets logged to the recipient's activity history). Include create_contact actions for any NEW people mentioned in the thread or intent who aren't already in the CRM. Include create_task actions for any follow-ups, callbacks, or "I'll send you the T12" / "let's schedule a tour" / "circle back next week" type commitments. Generate 1-5 actions total based on what's actually in the email.`;
+For suggestedActions: ALWAYS include exactly one log_activity action for this email. Then add create_task actions for ANY follow-up commitments mentioned (e.g. "I'll send you the T12", "let's schedule a tour", "circle back next week", "I'll get you the rent roll"). Add create_contact actions ONLY for NEW people mentioned in the thread/intent who aren't the recipient and aren't already in the CRM. Generate as few or as many actions as the email content actually warrants.`;
 
       const response = await invokeLlm.mutateAsync({ prompt: fullPrompt });
       const text = response.text?.trim() ?? "";
       const cleaned = text.replace(/^```json\s*|\s*```$/g, "").trim();
-      const parsed = JSON.parse(cleaned) as AnalysisResult;
-      if (!parsed.emailBody) throw new Error("AI returned no email body");
-      setAnalysis(parsed);
+      const parsed = JSON.parse(cleaned);
+
+      // Merge AI's parsed result with detection metadata
+      const result: AnalysisResult = {
+        emailBody: parsed.emailBody,
+        detectedRecipient: {
+          contactId: detected?.matchedContact?.id ?? null,
+          firstName: parsed.detectedRecipient?.firstName ?? "",
+          lastName: parsed.detectedRecipient?.lastName ?? "",
+          email: parsed.detectedRecipient?.email ?? "",
+          company: parsed.detectedRecipient?.company ?? "",
+          confidence: detected?.confidence ?? "low",
+          reasoning: detected?.reasoning ?? "",
+          isExisting: !!detected?.matchedContact?.id,
+        },
+        suggestedActions: parsed.suggestedActions ?? [],
+      };
+
+      // If recipient was new and not auto-added to CRM yet, prepend a create_contact action
+      if (!result.detectedRecipient.isExisting && result.detectedRecipient.firstName) {
+        result.suggestedActions.unshift({
+          type: "create_contact",
+          firstName: result.detectedRecipient.firstName,
+          lastName: result.detectedRecipient.lastName,
+          email: result.detectedRecipient.email || undefined,
+          company: result.detectedRecipient.company || undefined,
+          reason: "Auto-create the recipient since they're not in the CRM yet",
+        });
+      }
+
+      setAnalysis(result);
     } catch (err) {
+      console.error(err);
       toast.error(err instanceof Error ? err.message : "Failed to generate email");
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  const handleCreateNewRecipient = async () => {
-    if (!newRecipient.firstName.trim()) {
-      toast.error("First name required");
-      return;
-    }
-    try {
-      const created = await createContact.mutateAsync({
-        firstName: newRecipient.firstName,
-        lastName: newRecipient.lastName,
-        email: newRecipient.email || undefined,
-        company: newRecipient.company || undefined,
-      });
-      utils.contacts.list.invalidate();
-      setRecipientId(created.id);
-      setShowCreateRecipient(false);
-      setShowRecipientPicker(false);
-      setNewRecipient({ firstName: "", lastName: "", email: "", company: "" });
-      toast.success(`Added ${created.firstName} ${created.lastName}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create contact");
     }
   };
 
@@ -214,7 +218,6 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
     if (!analysis) return "";
     let body = analysis.emailBody.trim();
     if (profile?.signature?.trim()) {
-      // Make sure signature comes after "Thanks," (or whatever sign-off the AI included)
       body = body + "\n" + profile.signature.trim();
     } else if (profile?.name) {
       body = body + "\n" + profile.name;
@@ -240,92 +243,95 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
   };
 
   const handleApplyActions = async () => {
-    if (!analysis || !recipient) return;
+    if (!analysis) return;
     setIsApplying(true);
     try {
       const accepted = analysis.suggestedActions.filter((_, i) => acceptedActions.has(i));
 
-      // Resolve contact names → ids for tasks/activities. We use the recipient as the
-      // default contact when contactName matches; otherwise leave unlinked.
-      const recipientFullName = `${recipient.firstName} ${recipient.lastName}`.toLowerCase().trim();
-      const resolveContactId = (name?: string): number | undefined => {
-        if (!name) return undefined;
-        if (name.toLowerCase().trim() === recipientFullName) return recipient.id;
-        return undefined;
-      };
+      // Track contacts we create so we can link them to subsequent activities/tasks
+      const nameToId = new Map<string, number>();
+      if (analysis.detectedRecipient.contactId) {
+        nameToId.set(
+          `${analysis.detectedRecipient.firstName} ${analysis.detectedRecipient.lastName}`.toLowerCase().trim(),
+          analysis.detectedRecipient.contactId,
+        );
+      }
 
-      const newTasks: Array<{ title: string; description?: string; priority: "medium"; type: "follow_up"; contactId?: number; dueDaysFromNow: number }> = [];
-      const activitiesToCreate: Array<{ type: "email"; subject: string; notes: string; contactId?: number }> = [];
-      const contactsToCreate: Array<{ firstName: string; lastName: string; email?: string; phone?: string; company?: string }> = [];
+      let createdCount = 0;
+      let activityCount = 0;
+      let taskCount = 0;
 
+      // 1. Create new contacts FIRST so we can link to them
       for (const action of accepted) {
         if (action.type === "create_contact") {
-          contactsToCreate.push({
-            firstName: action.firstName,
-            lastName: action.lastName,
-            email: action.email || undefined,
-            phone: action.phone || undefined,
-            company: action.company || undefined,
-          });
-        } else if (action.type === "log_activity") {
-          activitiesToCreate.push({
-            type: "email",
+          try {
+            const created = await createContact.mutateAsync({
+              firstName: action.firstName,
+              lastName: action.lastName,
+              email: action.email || undefined,
+              phone: action.phone || undefined,
+              company: action.company || undefined,
+            });
+            const key = `${created.firstName} ${created.lastName}`.toLowerCase().trim();
+            nameToId.set(key, created.id);
+            createdCount++;
+          } catch (err) {
+            console.warn("Failed to create contact:", err);
+          }
+        }
+      }
+
+      const resolveContactId = (name?: string): number | undefined => {
+        if (!name) return analysis.detectedRecipient.contactId ?? undefined;
+        const id = nameToId.get(name.toLowerCase().trim());
+        return id ?? analysis.detectedRecipient.contactId ?? undefined;
+      };
+
+      // 2. Log activities
+      for (const action of accepted) {
+        if (action.type === "log_activity") {
+          await createActivity.mutateAsync({
+            type: action.activityType,
+            direction: "outbound",
             subject: action.subject,
             notes: action.notes,
             contactId: resolveContactId(action.contactName),
           });
-        } else if (action.type === "create_task") {
-          newTasks.push({
-            title: action.title,
-            description: action.description,
-            priority: "medium",
-            type: "follow_up",
-            contactId: resolveContactId(action.contactName),
-            dueDaysFromNow: action.dueDaysFromNow,
-          });
+          activityCount++;
         }
       }
 
-      // 1. Create new contacts
-      for (const c of contactsToCreate) {
-        await createContact.mutateAsync(c);
-      }
-
-      // 2. Create activities
-      for (const a of activitiesToCreate) {
-        await createActivity.mutateAsync({
-          type: a.type,
-          direction: "outbound",
-          subject: a.subject,
-          notes: a.notes,
-          contactId: a.contactId,
-        });
-      }
-
-      // 3. Create tasks via the existing applyCallActions endpoint
+      // 3. Create tasks
+      const newTasks = accepted
+        .filter((a): a is Extract<SuggestedAction, { type: "create_task" }> => a.type === "create_task")
+        .map((t) => ({
+          title: t.title,
+          description: t.description,
+          priority: "medium" as const,
+          type: "follow_up" as const,
+          contactId: resolveContactId(t.contactName),
+          dueDaysFromNow: t.dueDaysFromNow,
+        }));
       if (newTasks.length > 0) {
         await applyActions.mutateAsync({ newTasks });
+        taskCount = newTasks.length;
       }
 
       utils.contacts.list.invalidate();
       utils.activities.list.invalidate();
       utils.tasks.list.invalidate();
 
-      const total = contactsToCreate.length + activitiesToCreate.length + newTasks.length;
-      toast.success(
-        `Applied ${total} change${total === 1 ? "" : "s"}: ${contactsToCreate.length} contact(s), ${activitiesToCreate.length} activit${activitiesToCreate.length === 1 ? "y" : "ies"}, ${newTasks.length} task${newTasks.length === 1 ? "" : "s"}`,
-      );
+      const parts: string[] = [];
+      if (createdCount) parts.push(`${createdCount} contact${createdCount > 1 ? "s" : ""}`);
+      if (activityCount) parts.push(`${activityCount} activit${activityCount > 1 ? "ies" : "y"}`);
+      if (taskCount) parts.push(`${taskCount} task${taskCount > 1 ? "s" : ""}`);
+      toast.success(`Done — ${parts.join(", ") || "no changes"}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to apply actions");
     } finally {
       setIsApplying(false);
     }
   };
-
-  // Profile completeness check — block generation if Settings aren't filled in
-  const profileComplete = !!(profile?.name?.trim() && profile?.company?.trim());
-  const senderDisplayName = profile?.name?.trim() || "(your name not set)";
-  const senderDisplayCompany = profile?.company?.trim() || "(company not set)";
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
@@ -334,12 +340,13 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
         <div>
           <h1 className="text-2xl font-semibold">Email Studio</h1>
           <p className="text-sm text-muted-foreground">
-            Draft an email in your voice. Brokrbase logs the email, creates contacts, and builds follow-up tasks automatically.
+            Paste an email or describe what you want to say. Brokrbase figures out who you're talking to,
+            edits in your voice, logs the activity, and builds follow-up tasks. All of it.
           </p>
         </div>
       </div>
 
-      {/* Sending-as banner — makes it impossible to forget the AI uses your profile */}
+      {/* Sending-as banner */}
       <div
         className={`rounded-md border p-3 text-sm ${
           profileComplete
@@ -350,27 +357,22 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
         {profileComplete ? (
           <div className="flex items-start gap-2">
             <Sparkles className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-            <div>
-              <div className="font-medium">
-                Sending as <span className="text-primary">{senderDisplayName}</span>
-                {profile?.title ? ` · ${profile.title}` : ""}
-                {profile?.company ? ` · ${profile.company}` : ""}
-              </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                The AI writes emails as you, in your voice, with your signature appended.{" "}
-                <a href="/settings" className="underline">Edit your profile</a>
-              </div>
+            <div className="text-sm">
+              <span className="font-medium">Sending as </span>
+              <span className="text-primary font-medium">{senderDisplayName}</span>
+              {profile?.title ? ` · ${profile.title}` : ""}
+              {profile?.company ? ` · ${profile.company}` : ""}
+              <span className="text-muted-foreground"> · </span>
+              <a href="/settings" className="text-muted-foreground underline">edit</a>
             </div>
           </div>
         ) : (
           <div className="flex items-start gap-2">
             <X className="h-4 w-4 text-yellow-700 mt-0.5 shrink-0" />
             <div>
-              <div className="font-medium text-yellow-900">
-                Your profile isn't filled in yet
-              </div>
+              <div className="font-medium text-yellow-900">Your profile isn't filled in yet</div>
               <div className="text-xs text-yellow-800 mt-0.5">
-                Email Studio can't draft in your voice until you tell Brokrbase who you are.{" "}
+                Brokrbase needs to know your name + company to draft as you.{" "}
                 <a href="/settings" className="underline font-semibold">
                   Go to Settings →
                 </a>
@@ -380,132 +382,32 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
         )}
       </div>
 
-      {/* Recipient picker */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Email To
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recipient ? (
-            <div className="flex items-center justify-between gap-2 border rounded-md p-3 bg-muted/30">
-              <div>
-                <div className="font-medium">
-                  {recipient.firstName} {recipient.lastName}
-                </div>
-                {recipient.company && (
-                  <div className="text-xs text-muted-foreground">{recipient.company}</div>
-                )}
-                {recipient.email && (
-                  <div className="text-xs text-muted-foreground">{recipient.email}</div>
-                )}
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setRecipientId(null)}>
-                Change
-              </Button>
-            </div>
-          ) : showCreateRecipient ? (
-            <div className="space-y-3 border rounded-md p-3 bg-muted/30">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">First name</Label>
-                  <Input
-                    value={newRecipient.firstName}
-                    onChange={(e) => setNewRecipient({ ...newRecipient, firstName: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Last name</Label>
-                  <Input
-                    value={newRecipient.lastName}
-                    onChange={(e) => setNewRecipient({ ...newRecipient, lastName: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Email</Label>
-                  <Input
-                    type="email"
-                    value={newRecipient.email}
-                    onChange={(e) => setNewRecipient({ ...newRecipient, email: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Company</Label>
-                  <Input
-                    value={newRecipient.company}
-                    onChange={(e) => setNewRecipient({ ...newRecipient, company: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setShowCreateRecipient(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleCreateNewRecipient} disabled={createContact.isPending}>
-                  {createContact.isPending ? "Creating…" : "Create + Use"}
-                </Button>
-              </div>
-            </div>
-          ) : showRecipientPicker ? (
-            <div className="space-y-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  autoFocus
-                  value={recipientSearch}
-                  onChange={(e) => setRecipientSearch(e.target.value)}
-                  placeholder="Search contacts by name, email, company…"
-                  className="pl-9"
-                />
-              </div>
-              <div className="max-h-48 overflow-y-auto border rounded-md">
-                {(contactsListQuery.data ?? []).length === 0 && recipientSearch && (
-                  <p className="text-xs text-muted-foreground p-2">
-                    No contacts match. Create a new one below.
-                  </p>
-                )}
-                {(contactsListQuery.data ?? []).map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => {
-                      setRecipientId(c.id);
-                      setShowRecipientPicker(false);
-                      setRecipientSearch("");
-                    }}
-                    className="block w-full text-left p-2 hover:bg-muted text-sm border-b last:border-b-0"
-                  >
-                    <div className="font-medium">{c.firstName} {c.lastName}</div>
-                    {c.company && <div className="text-xs text-muted-foreground">{c.company}</div>}
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => { setShowRecipientPicker(false); setRecipientSearch(""); }}>
-                  Cancel
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setShowCreateRecipient(true)}>
-                  + New contact
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button variant="outline" onClick={() => setShowRecipientPicker(true)} className="gap-1">
-              <Search className="h-3.5 w-3.5" /> Pick a recipient
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Compose / Edit input */}
-      <Tabs value={mode} onValueChange={(v) => setMode(v as "compose" | "edit")}>
+      <Tabs value={mode} onValueChange={(v) => setMode(v as "edit" | "compose")}>
         <TabsList>
-          <TabsTrigger value="compose">Compose from Notes</TabsTrigger>
           <TabsTrigger value="edit">Edit a Draft</TabsTrigger>
+          <TabsTrigger value="compose">Compose from Notes</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="edit" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                Paste from your email client
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                rows={14}
+                value={pasteContent}
+                onChange={(e) => setPasteContent(e.target.value)}
+                placeholder="Paste the entire compose window from Gmail/Outlook. Your unfinished draft at the top, the prior thread below it. Brokrbase will auto-detect who you're emailing, edit your draft in your voice, and suggest CRM updates."
+              />
+              <p className="text-xs text-muted-foreground mt-2">
+                No need to pick a recipient — Brokrbase reads the email addresses in the thread and figures it out.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="compose" className="space-y-4 mt-4">
           <Card>
@@ -514,74 +416,47 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
                 What should the email say?
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent>
               <Textarea
                 rows={6}
                 value={intent}
                 onChange={(e) => setIntent(e.target.value)}
-                placeholder="Describe what you want to say. Bullet points or sentences — anything goes. Include details like deal names, prices, dates, and follow-up commitments."
+                placeholder="Describe what you want to say. Include who you're emailing (name + email if you have it), the deal, the ask, any commitments. e.g. 'Email Tom at Clearwater (tom@clearwater.com) about Pinecreek. Send the T12 by Friday and schedule a tour next week.'"
               />
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="edit" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Your draft + the thread
+                Prior thread (optional)
               </CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
-                rows={14}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Paste the whole thing from your email client. Your unfinished draft at the top, the prior thread below it (the 'On Oct 12, Tom wrote:' part). Brokrbase will edit only your draft and use the rest as context."
+                rows={4}
+                value={composeThread}
+                onChange={(e) => setComposeThread(e.target.value)}
+                placeholder="If there's a prior email thread, paste it here so Brokrbase can auto-detect the recipient and use it as context."
               />
-              <p className="text-xs text-muted-foreground mt-2">
-                Tip: just copy the entire compose window from Gmail/Outlook and paste it here. No need to split anything.
-              </p>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Optional thread context — only shown for Compose mode */}
-      {mode === "compose" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              Prior email thread (optional)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              rows={4}
-              value={thread}
-              onChange={(e) => setThread(e.target.value)}
-              placeholder="Paste any prior emails in the thread here (optional). Helps the AI understand the conversation."
-            />
-          </CardContent>
-        </Card>
-      )}
-
       <Button
         onClick={handleGenerate}
-        disabled={isProcessing || !recipient || !profileComplete}
+        disabled={isProcessing || !profileComplete}
         className="gap-2 w-full"
         size="lg"
       >
         {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
         {isProcessing
-          ? "Drafting…"
+          ? "Drafting + analyzing…"
           : !profileComplete
             ? "Fill in your Settings profile first"
-            : !recipient
-              ? "Pick a recipient first"
-              : mode === "compose"
-                ? "Compose Email"
-                : "Edit in My Voice"}
+            : mode === "edit"
+              ? "Edit + Auto-Update CRM"
+              : "Compose + Auto-Update CRM"}
       </Button>
 
       {/* Result */}
@@ -596,7 +471,34 @@ For suggestedActions: ALWAYS include at least one log_activity action for this e
                 </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {analysis.detectedRecipient.firstName && (
+                <div className="border rounded-md p-2 bg-muted/30 text-xs flex items-start gap-2">
+                  <User className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                  <div>
+                    <div>
+                      <span className="text-muted-foreground">To: </span>
+                      <span className="font-medium">
+                        {analysis.detectedRecipient.firstName} {analysis.detectedRecipient.lastName}
+                      </span>
+                      {analysis.detectedRecipient.company && (
+                        <span className="text-muted-foreground"> · {analysis.detectedRecipient.company}</span>
+                      )}
+                      {analysis.detectedRecipient.email && (
+                        <span className="text-muted-foreground"> · {analysis.detectedRecipient.email}</span>
+                      )}
+                    </div>
+                    <div className="text-muted-foreground mt-0.5">
+                      {analysis.detectedRecipient.isExisting ? (
+                        <>Existing contact in your CRM</>
+                      ) : (
+                        <>New contact — will be created when you apply updates</>
+                      )}
+                      {analysis.detectedRecipient.reasoning && ` · ${analysis.detectedRecipient.reasoning}`}
+                    </div>
+                  </div>
+                </div>
+              )}
               <pre className="whitespace-pre-wrap text-sm font-sans">{finalEmail}</pre>
             </CardContent>
           </Card>
@@ -668,8 +570,6 @@ function describeAction(a: SuggestedAction): string {
       return `Log ${a.activityType}: ${a.subject}`;
     case "create_task":
       return `Task: ${a.title}`;
-    case "update_contact":
-      return `Update ${a.contactName}: ${a.field} → ${a.newValue}`;
   }
 }
 
@@ -698,6 +598,8 @@ function buildStylePrompt(profile: {
 
   return `${identityLine}${focusLine}
 
+CRITICAL: ${name} is the SENDER. They are the broker using the CRM. Never write a reply addressed TO ${name}. They are always the one writing OUT.
+
 VOICE & TONE:
 - Direct, no fluff. Get to the point in sentence one.
 - Short sentences are preferred. Fragments are fine.
@@ -716,6 +618,5 @@ RULES:
 1. Fix all typos and grammar errors.
 2. Tighten wording only where it genuinely improves clarity.
 3. Keep all specific numbers, deal names, and facts exactly as provided.
-4. Do not invent information. Do not make up details.
-5. The broker is the SENDER. Never write a reply that addresses the broker as if they were the recipient.${customBlock}`;
+4. Do not invent information. Do not make up details.${customBlock}`;
 }

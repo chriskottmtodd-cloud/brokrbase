@@ -101,9 +101,26 @@ export const contactEmailsRouter = router({
       // AI's job: figure out WHO this interaction is about (not just who sent it).
       // We then use the email AI identifies to do a hard DB match — we do NOT trust the ID AI returns,
       // because AI can hallucinate IDs or pick the wrong person by name.
-      const prompt = `You are a CRM assistant for a commercial real estate broker (Chriskott Todd, multifamily broker in Idaho/Montana).
+      // Load the user's profile so the AI doesn't bias toward who SENT the email
+      // (which is often the broker themselves) and instead picks the actual counterparty.
+      const { getUserById } = await import("../db");
+      let senderName = "the broker";
+      let senderCompany: string | undefined;
+      let senderEmail: string | undefined;
+      try {
+        const userProfile = await getUserById(ctx.user.id);
+        if (userProfile) {
+          senderName = userProfile.name?.trim() || senderName;
+          senderCompany = userProfile.company?.trim() || undefined;
+          senderEmail = userProfile.email?.trim() || undefined;
+        }
+      } catch { /* ignore */ }
 
-Analyze this email thread and identify who the PRIMARY CONTACT is — the person the broker should log this interaction against in the CRM. This is NOT necessarily the sender. It could be:
+      const prompt = `You are a CRM assistant for a commercial real estate broker named ${senderName}${senderCompany ? ` at ${senderCompany}` : ""}${senderEmail ? ` (${senderEmail})` : ""}.
+
+CRITICAL: ${senderName} is the BROKER. They are the one using the CRM. They are NEVER the "primary contact" — they are the user, not the counterparty. Even if their email or name appears in the thread, NEVER pick them. The primary contact is always the OTHER person — the one ${senderName} is communicating WITH.
+
+Analyze this email thread and identify who the PRIMARY CONTACT is — the person ${senderName} should log this interaction against in the CRM. This is NOT necessarily the sender. It could be:
 - A buyer being introduced by a colleague
 - A property owner being discussed
 - A principal CC'd on the thread
