@@ -127,11 +127,14 @@ export default function MapView() {
   const [pendingPolygon, setPendingPolygon] = useState<google.maps.Polygon | null>(null);
   const [pendingCenter, setPendingCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [showNameModal, setShowNameModal] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [newPropertyForm, setNewPropertyForm] = useState({
     name: "",
     propertyType: "apartment",
     address: "",
     city: "",
+    state: "",
+    zip: "",
   });
 
   // Edit-boundary mode for an existing property
@@ -234,6 +237,27 @@ export default function MapView() {
             setShowNameModal(true);
             // Stop drawing mode after each polygon
             drawingManager.setDrawingMode(null);
+
+            // Reverse-geocode centroid to auto-fill address fields
+            setGeocoding(true);
+            const geocoder = new maps.Geocoder();
+            geocoder.geocode({ location: centroid }, (results, status) => {
+              setGeocoding(false);
+              if (status !== "OK" || !results?.[0]) return;
+              const components = results[0].address_components;
+              const get = (type: string) =>
+                components.find((c) => c.types.includes(type))?.short_name ?? "";
+              const streetNumber = get("street_number");
+              const route = get("route");
+              const addr = [streetNumber, route].filter(Boolean).join(" ");
+              setNewPropertyForm((prev) => ({
+                ...prev,
+                address: addr,
+                city: get("locality") || get("sublocality") || get("neighborhood"),
+                state: get("administrative_area_level_1"),
+                zip: get("postal_code"),
+              }));
+            });
           },
         );
 
@@ -368,7 +392,7 @@ export default function MapView() {
     }
     setPendingCenter(null);
     setShowNameModal(false);
-    setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "" });
+    setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "", state: "", zip: "" });
   };
 
   const recenterOnMe = () => {
@@ -410,6 +434,8 @@ export default function MapView() {
           | "self_storage" | "affordable_housing" | "other",
         address: newPropertyForm.address || undefined,
         city: newPropertyForm.city || undefined,
+        state: newPropertyForm.state || undefined,
+        zip: newPropertyForm.zip || undefined,
         latitude: pendingCenter.lat,
         longitude: pendingCenter.lng,
         boundary: geojson,
@@ -421,7 +447,7 @@ export default function MapView() {
       setPendingPolygon(null);
       setPendingCenter(null);
       setShowNameModal(false);
-      setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "" });
+      setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "", state: "", zip: "" });
       utils.properties.forMap.invalidate();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save property");
@@ -651,20 +677,40 @@ export default function MapView() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs">Address (optional)</Label>
+              <Label className="text-xs">
+                Address{geocoding ? <span className="ml-1 text-muted-foreground">(detecting...)</span> : ""}
+              </Label>
               <Input
                 value={newPropertyForm.address}
                 onChange={(e) => setNewPropertyForm({ ...newPropertyForm, address: e.target.value })}
-                placeholder="123 Main St"
+                placeholder={geocoding ? "Looking up address…" : "123 Main St"}
               />
             </div>
-            <div>
-              <Label className="text-xs">City (optional)</Label>
-              <Input
-                value={newPropertyForm.city}
-                onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })}
-                placeholder="Boise"
-              />
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-1">
+                <Label className="text-xs">City</Label>
+                <Input
+                  value={newPropertyForm.city}
+                  onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })}
+                  placeholder="Boise"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">State</Label>
+                <Input
+                  value={newPropertyForm.state}
+                  onChange={(e) => setNewPropertyForm({ ...newPropertyForm, state: e.target.value })}
+                  placeholder="ID"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Zip</Label>
+                <Input
+                  value={newPropertyForm.zip}
+                  onChange={(e) => setNewPropertyForm({ ...newPropertyForm, zip: e.target.value })}
+                  placeholder="83702"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
