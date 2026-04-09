@@ -39,29 +39,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-
-// ─── Property type → pin color (Brokrbase defaults; Blake can override later) ──
-const TYPE_COLORS: Record<string, string> = {
-  apartment: "#2563eb",          // blue
-  mhc: "#ea580c",                // orange
-  office: "#7c3aed",             // purple
-  retail: "#16a34a",             // green
-  industrial: "#525252",         // gray
-  self_storage: "#0d9488",       // teal
-  affordable_housing: "#db2777", // pink
-  other: "#d03238",              // NAI red (default)
-};
-
-const PROPERTY_TYPE_OPTIONS = [
-  { value: "apartment", label: "Apartment" },
-  { value: "mhc", label: "MHC" },
-  { value: "office", label: "Office" },
-  { value: "retail", label: "Retail" },
-  { value: "industrial", label: "Industrial" },
-  { value: "self_storage", label: "Self Storage" },
-  { value: "affordable_housing", label: "Affordable Housing" },
-  { value: "other", label: "Other" },
-] as const;
+import {
+  ALL_PROPERTY_TYPES,
+  getEnabledTypes,
+  getTypeColor,
+  parsePreferences,
+  type UserPreferences,
+} from "./Settings";
 
 // ─── Google Maps script loader (singleton) ─────────────────────────────────
 let mapsLoadPromise: Promise<typeof google.maps> | null = null;
@@ -142,6 +126,12 @@ export default function MapView() {
 
   // ─── Data ─────────────────────────────────────────────────────────────────
   const configQuery = trpc.properties.mapsConfig.useQuery();
+  const profileQuery = trpc.users.getMyProfile.useQuery();
+  const prefs: UserPreferences = parsePreferences(profileQuery.data?.preferences ?? "");
+  const enabledTypes = getEnabledTypes(prefs);
+  const enabledPropertyTypeOptions = ALL_PROPERTY_TYPES.filter((t) =>
+    enabledTypes.includes(t.value),
+  );
   const propertiesQuery = trpc.properties.forMap.useQuery();
   const utils = trpc.useUtils();
   const createProperty = trpc.properties.create.useMutation();
@@ -296,7 +286,7 @@ export default function MapView() {
 
     // Render or update markers/polygons for each property
     for (const p of properties) {
-      const color = TYPE_COLORS[p.propertyType] ?? TYPE_COLORS.other;
+      const color = getTypeColor(prefs, p.propertyType);
 
       if (p.latitude != null && p.longitude != null) {
         let marker = markersRef.current.get(p.id);
@@ -639,6 +629,7 @@ export default function MapView() {
           onRemoveBoundary={handleRemoveBoundaryOnly}
           onDelete={handleDeleteProperty}
           hasBoundary={!!selectedProperty.boundary}
+          prefs={prefs}
         />
       )}
 
@@ -668,7 +659,7 @@ export default function MapView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROPERTY_TYPE_OPTIONS.map((t) => (
+                  {enabledPropertyTypeOptions.map((t) => (
                     <SelectItem key={t.value} value={t.value}>
                       {t.label}
                     </SelectItem>
@@ -738,6 +729,7 @@ function PropertyCard({
   onRemoveBoundary,
   onDelete,
   hasBoundary,
+  prefs,
 }: {
   property: MapProperty;
   activities: Array<{ id: number; type: string; subject: string | null; notes: string | null; summary: string | null; occurredAt: Date | string }>;
@@ -748,9 +740,10 @@ function PropertyCard({
   onRemoveBoundary: () => void;
   onDelete: () => void;
   hasBoundary: boolean;
+  prefs: UserPreferences;
 }) {
   const fullAddress = [property.address, property.city, property.state].filter(Boolean).join(", ");
-  const typeColor = TYPE_COLORS[property.propertyType] ?? TYPE_COLORS.other;
+  const typeColor = getTypeColor(prefs, property.propertyType);
 
   return (
     <div

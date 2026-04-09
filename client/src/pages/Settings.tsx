@@ -1,12 +1,53 @@
 import { useEffect, useState } from "react";
-import { Loader2, Save, User as UserIcon } from "lucide-react";
+import { Loader2, MapPin, Palette, Save, User as UserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+
+// ─── Default property types + colors ────────────────────────────────────────
+export const ALL_PROPERTY_TYPES = [
+  { value: "apartment", label: "Apartment", defaultColor: "#2563eb" },
+  { value: "mhc", label: "MHC", defaultColor: "#ea580c" },
+  { value: "office", label: "Office", defaultColor: "#7c3aed" },
+  { value: "retail", label: "Retail", defaultColor: "#16a34a" },
+  { value: "industrial", label: "Industrial", defaultColor: "#525252" },
+  { value: "self_storage", label: "Self Storage", defaultColor: "#0d9488" },
+  { value: "affordable_housing", label: "Affordable Housing", defaultColor: "#db2777" },
+  { value: "other", label: "Other", defaultColor: "#d03238" },
+] as const;
+
+export interface UserPreferences {
+  enabledPropertyTypes?: string[];
+  typeColors?: Record<string, string>;
+}
+
+export function parsePreferences(raw: string): UserPreferences {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as UserPreferences;
+  } catch {
+    return {};
+  }
+}
+
+/** Get the enabled types for a user (defaults to all if not set) */
+export function getEnabledTypes(prefs: UserPreferences) {
+  const enabled = prefs.enabledPropertyTypes;
+  if (!enabled || enabled.length === 0) return ALL_PROPERTY_TYPES.map((t) => t.value);
+  return enabled;
+}
+
+/** Get pin color for a property type, respecting user overrides */
+export function getTypeColor(prefs: UserPreferences, type: string): string {
+  if (prefs.typeColors?.[type]) return prefs.typeColors[type];
+  const found = ALL_PROPERTY_TYPES.find((t) => t.value === type);
+  return found?.defaultColor ?? "#d03238";
+}
 
 export default function Settings() {
   const profileQuery = trpc.users.getMyProfile.useQuery();
@@ -22,6 +63,8 @@ export default function Settings() {
     voiceNotes: "",
   });
 
+  const [prefs, setPrefs] = useState<UserPreferences>({});
+
   useEffect(() => {
     if (profileQuery.data) {
       setForm({
@@ -33,12 +76,40 @@ export default function Settings() {
         signature: profileQuery.data.signature ?? "",
         voiceNotes: profileQuery.data.voiceNotes ?? "",
       });
+      setPrefs(parsePreferences(profileQuery.data.preferences ?? ""));
     }
   }, [profileQuery.data]);
 
+  const enabledTypes = getEnabledTypes(prefs);
+
+  const toggleType = (value: string) => {
+    const current = [...enabledTypes];
+    const idx = current.indexOf(value);
+    if (idx >= 0) {
+      if (current.length <= 1) {
+        toast.error("You need at least one property type enabled");
+        return;
+      }
+      current.splice(idx, 1);
+    } else {
+      current.push(value);
+    }
+    setPrefs({ ...prefs, enabledPropertyTypes: current });
+  };
+
+  const setTypeColor = (value: string, color: string) => {
+    setPrefs({
+      ...prefs,
+      typeColors: { ...prefs.typeColors, [value]: color },
+    });
+  };
+
   const handleSave = async () => {
     try {
-      await updateMut.mutateAsync(form);
+      await updateMut.mutateAsync({
+        ...form,
+        preferences: JSON.stringify(prefs),
+      });
       toast.success("Profile saved");
       profileQuery.refetch();
     } catch (err) {
@@ -97,6 +168,54 @@ export default function Settings() {
               <Field label="Phone">
                 <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </Field>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MapPin className="h-4 w-4" /> Property Types & Map Colors
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground mb-3">
+                Toggle which property types you work with. Disabled types won't show in dropdowns or map filters.
+                Pick a pin color for each type on the map.
+              </p>
+              <div className="space-y-2">
+                {ALL_PROPERTY_TYPES.map((pt) => {
+                  const isEnabled = enabledTypes.includes(pt.value);
+                  const color = getTypeColor(prefs, pt.value);
+                  return (
+                    <div
+                      key={pt.value}
+                      className={`flex items-center gap-3 rounded-lg border p-2.5 transition-colors ${
+                        isEnabled ? "bg-background" : "bg-muted/40 opacity-60"
+                      }`}
+                    >
+                      <Switch
+                        checked={isEnabled}
+                        onCheckedChange={() => toggleType(pt.value)}
+                      />
+                      <div
+                        className="h-5 w-5 rounded-full border border-border shrink-0"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="text-sm font-medium flex-1">{pt.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Palette className="h-3 w-3 text-muted-foreground" />
+                        <input
+                          type="color"
+                          value={color}
+                          onChange={(e) => setTypeColor(pt.value, e.target.value)}
+                          className="h-7 w-7 rounded border border-border cursor-pointer bg-transparent p-0"
+                          title={`Pick color for ${pt.label}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
 

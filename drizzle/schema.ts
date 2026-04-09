@@ -28,6 +28,7 @@ export const users = mysqlTable("users", {
   marketFocus: text("marketFocus"),
   signature: text("signature"),
   voiceNotes: text("voiceNotes"),
+  preferences: text("preferences"), // JSON: { propertyTypes, typeColors }
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

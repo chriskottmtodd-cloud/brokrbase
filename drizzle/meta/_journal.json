@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1775735686653,
+      "tag": "0000_foamy_selene",
+      "breakpoints": true
+    }
+  ]
+}

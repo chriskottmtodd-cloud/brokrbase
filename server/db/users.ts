@@ -101,6 +101,7 @@ export async function updateUserProfile(
     marketFocus?: string | null;
     signature?: string | null;
     voiceNotes?: string | null;
+    preferences?: string | null;
   },
 ): Promise<void> {
   const db = await getDb();

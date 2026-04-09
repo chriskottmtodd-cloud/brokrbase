@@ -8,6 +8,8 @@ import { registerPasswordAuthRoutes } from "../passwordAuth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { getDb } from "../db/connection";
+import { sql } from "drizzle-orm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -28,7 +30,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+/** Ensure new columns exist — safe to run repeatedly */
+async function runSelfHealingMigrations() {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const cols = await db.execute(sql`SHOW COLUMNS FROM users LIKE 'preferences'`);
+    if ((cols as unknown as unknown[]).length === 0) {
+      await db.execute(sql`ALTER TABLE users ADD COLUMN preferences TEXT`);
+      console.log("[migration] Added preferences column to users");
+    }
+  } catch (e) {
+    console.warn("[migration] Self-healing migration warning:", e);
+  }
+}
+
 async function startServer() {
+  await runSelfHealingMigrations();
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads

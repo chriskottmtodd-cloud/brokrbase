@@ -49,6 +49,7 @@ import {
   Users,
 } from "lucide-react";
 import { ActivityDetailModal } from "@/components/ActivityDetailModal";
+import { ALL_PROPERTY_TYPES, getEnabledTypes, parsePreferences } from "./Settings";
 
 const activityIcons: Record<string, React.ReactNode> = {
   call: <Phone className="h-3.5 w-3.5" />,
@@ -57,16 +58,7 @@ const activityIcons: Record<string, React.ReactNode> = {
   note: <Activity className="h-3.5 w-3.5" />,
 };
 
-const PROPERTY_TYPES = [
-  { value: "apartment", label: "Apartment" },
-  { value: "mhc", label: "MHC" },
-  { value: "office", label: "Office" },
-  { value: "retail", label: "Retail" },
-  { value: "industrial", label: "Industrial" },
-  { value: "self_storage", label: "Self Storage" },
-  { value: "affordable_housing", label: "Affordable Housing" },
-  { value: "other", label: "Other" },
-] as const;
+// PROPERTY_TYPES is computed inside the component from user preferences
 
 const STATUSES = [
   { value: "researching", label: "Researching" },
@@ -85,6 +77,11 @@ export default function PropertyDetail() {
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [openActivityId, setOpenActivityId] = useState<number | null>(null);
+
+  const profileQuery = trpc.users.getMyProfile.useQuery();
+  const prefs = parsePreferences(profileQuery.data?.preferences ?? "");
+  const enabledTypes = getEnabledTypes(prefs);
+  const PROPERTY_TYPES = ALL_PROPERTY_TYPES.filter((t) => enabledTypes.includes(t.value));
 
   const utils = trpc.useUtils();
 
@@ -411,6 +408,9 @@ function EditPropertyModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const profileQ = trpc.users.getMyProfile.useQuery();
+  const prefs2 = parsePreferences(profileQ.data?.preferences ?? "");
+  const PROPERTY_TYPES = ALL_PROPERTY_TYPES.filter((t) => getEnabledTypes(prefs2).includes(t.value));
   const [form, setForm] = useState({
     name: property.name,
     propertyType: property.propertyType,

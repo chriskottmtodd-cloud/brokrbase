@@ -22,22 +22,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
-
-const PROPERTY_TYPES = [
-  { value: "apartment", label: "Apartment" },
-  { value: "mhc", label: "MHC" },
-  { value: "office", label: "Office" },
-  { value: "retail", label: "Retail" },
-  { value: "industrial", label: "Industrial" },
-  { value: "self_storage", label: "Self Storage" },
-  { value: "affordable_housing", label: "Affordable Housing" },
-  { value: "other", label: "Other" },
-] as const;
+import { ALL_PROPERTY_TYPES, getEnabledTypes, parsePreferences } from "./Settings";
 
 export default function Properties() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const profileQuery = trpc.users.getMyProfile.useQuery();
+  const prefs = parsePreferences(profileQuery.data?.preferences ?? "");
+  const enabledTypes = getEnabledTypes(prefs);
+  const PROPERTY_TYPES = ALL_PROPERTY_TYPES.filter((t) => enabledTypes.includes(t.value));
 
   const { data: properties, refetch } = trpc.properties.list.useQuery({
     search: search || undefined,
@@ -132,6 +126,9 @@ function CreatePropertyModal({
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
+  const profileQ = trpc.users.getMyProfile.useQuery();
+  const prefs2 = parsePreferences(profileQ.data?.preferences ?? "");
+  const PROPERTY_TYPES = ALL_PROPERTY_TYPES.filter((t) => getEnabledTypes(prefs2).includes(t.value));
   const [form, setForm] = useState({
     name: "",
     propertyType: "apartment",

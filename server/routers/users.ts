@@ -24,6 +24,7 @@ export const usersRouter = router({
       marketFocus: user.marketFocus ?? "",
       signature: user.signature ?? "",
       voiceNotes: user.voiceNotes ?? "",
+      preferences: user.preferences ?? "",
     };
   }),
 
@@ -37,12 +38,18 @@ export const usersRouter = router({
         marketFocus: z.string().max(2000).optional(),
         signature: z.string().max(2000).optional(),
         voiceNotes: z.string().max(4000).optional(),
+        preferences: z.string().max(10000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const data = Object.fromEntries(
-        Object.entries(input).map(([k, v]) => [k, v && v.trim() ? v.trim() : null]),
+      const { preferences, ...rest } = input;
+      const data: Record<string, string | null> = Object.fromEntries(
+        Object.entries(rest).map(([k, v]) => [k, v && v.trim() ? v.trim() : null]),
       );
+      // preferences is JSON — don't trim/nullify it the same way
+      if (preferences !== undefined) {
+        data.preferences = preferences || null;
+      }
       await updateUserProfile(ctx.user.id, data);
       return { success: true };
     }),
