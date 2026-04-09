@@ -87,6 +87,34 @@ export async function getPropertiesByOwner(ownerId: number, userId: number) {
     .orderBy(asc(properties.name));
 }
 
+export async function getPropertiesForMap(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  return db
+    .select({
+      id: properties.id,
+      name: properties.name,
+      propertyType: properties.propertyType,
+      status: properties.status,
+      address: properties.address,
+      city: properties.city,
+      state: properties.state,
+      latitude: properties.latitude,
+      longitude: properties.longitude,
+      boundary: properties.boundary,
+      unitCount: properties.unitCount,
+      askingPrice: properties.askingPrice,
+      capRate: properties.capRate,
+      ownerName: properties.ownerName,
+      ownerCompany: properties.ownerCompany,
+      ownerPhone: properties.ownerPhone,
+      ownerEmail: properties.ownerEmail,
+    })
+    .from(properties)
+    .where(eq(properties.userId, userId))
+    .orderBy(asc(properties.name));
+}
+
 export async function findDuplicateProperty(userId: number, name: string, address?: string): Promise<number | null> {
   const db = await getDb();
   if (!db) return null;

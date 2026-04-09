@@ -15,6 +15,7 @@ import PropertyDetail from "./pages/PropertyDetail";
 import Tasks from "./pages/Tasks";
 import ActivityLog from "./pages/ActivityLog";
 import EmailStudio from "./pages/email-studio";
+import MapView from "./pages/MapView";
 import Settings from "./pages/Settings";
 
 function Router() {
@@ -30,6 +31,7 @@ function Router() {
         <Route path="/tasks" component={Tasks} />
         <Route path="/activities" component={ActivityLog} />
         <Route path="/email-studio" component={EmailStudio} />
+        <Route path="/map" component={MapView} />
         <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

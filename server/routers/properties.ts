@@ -6,10 +6,12 @@ import {
   findDuplicateProperty,
   getProperties,
   getPropertiesByOwner,
+  getPropertiesForMap,
   getPropertyById,
   updateProperty,
 } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { ENV } from "../_core/env";
 
 const PROPERTY_TYPE_ENUM = z.enum([
   "mhc",
@@ -86,6 +88,7 @@ export const propertiesRouter = router({
         ownerEmail: z.string().optional(),
         latitude: z.number().optional(),
         longitude: z.number().optional(),
+        boundary: z.string().optional(),
         notes: z.string().optional(),
       }),
     )
@@ -123,6 +126,7 @@ export const propertiesRouter = router({
           ownerEmail: z.string().nullable().optional(),
           latitude: z.number().nullable().optional(),
           longitude: z.number().nullable().optional(),
+          boundary: z.string().nullable().optional(),
           notes: z.string().nullable().optional(),
         }),
       }),
@@ -131,6 +135,14 @@ export const propertiesRouter = router({
       await updateProperty(input.id, ctx.user.id, input.data);
       return { success: true };
     }),
+
+  forMap: protectedProcedure.query(({ ctx }) => getPropertiesForMap(ctx.user.id)),
+
+  // Returns the Google Maps API key so the client can load the JS lib.
+  // This is a public-readable browser key (Google restricts it via referrer).
+  mapsConfig: protectedProcedure.query(() => ({
+    apiKey: ENV.googleMapsApiKey,
+  })),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
