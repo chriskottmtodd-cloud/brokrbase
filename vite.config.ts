@@ -164,7 +164,7 @@ const pwaPlugin = VitePWA({
     short_name: "Brokrbase",
     description: "The CRM that updates itself.",
     theme_color: "#d03238",
-    background_color: "#ffffff",
+    background_color: "#1a1a1a",
     display: "standalone",
     orientation: "portrait-primary",
     start_url: "/",
@@ -172,19 +172,19 @@ const pwaPlugin = VitePWA({
     id: "/",
     icons: [
       {
-        src: "/icon-192.png",
+        src: "/icon-192-pwa.png",
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icon-512.png",
+        src: "/icon-512-pwa.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icon-512.png",
+        src: "/icon-512-pwa.png",
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",
