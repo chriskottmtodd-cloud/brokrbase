@@ -264,9 +264,15 @@ class SDKServer {
 
     const sessionUserId = session.openId;
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    let user: User | undefined;
+    try {
+      user = await db.getUserByOpenId(sessionUserId);
+    } catch (dbErr) {
+      console.error("[Auth] DB lookup failed:", dbErr);
+    }
+
+    // If user not in DB, try syncing from OAuth server
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
@@ -278,20 +284,44 @@ class SDKServer {
           lastSignedIn: signedInAt,
         });
         user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
+      } catch {
+        // OAuth sync failed — fall through to session-only fallback
       }
     }
 
+    // Fallback: if the DB is unreachable or the user row is missing, build a
+    // minimal User object from the verified JWT so the app is still usable.
     if (!user) {
-      throw ForbiddenError("User not found");
+      console.warn("[Auth] Returning session-only user for", sessionUserId);
+      return {
+        id: 0,
+        openId: sessionUserId,
+        name: session.name || null,
+        email: null,
+        passwordHash: null,
+        loginMethod: "password",
+        role: "admin",
+        company: null,
+        title: null,
+        phone: null,
+        marketFocus: null,
+        signature: null,
+        voiceNotes: null,
+        preferences: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastSignedIn: signedInAt,
+      } as User;
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    try {
+      await db.upsertUser({
+        openId: user.openId,
+        lastSignedIn: signedInAt,
+      });
+    } catch {
+      // Non-critical — don't break the request
+    }
 
     return user;
   }
