@@ -20,14 +20,14 @@ import { trpc } from "@/lib/trpc";
 
 // ─── Default property types + colors ────────────────────────────────────────
 export const ALL_PROPERTY_TYPES = [
-  { value: "apartment", label: "Apartment", defaultColor: "#2563eb" },
-  { value: "mhc", label: "MHC", defaultColor: "#ea580c" },
-  { value: "office", label: "Office", defaultColor: "#7c3aed" },
-  { value: "retail", label: "Retail", defaultColor: "#16a34a" },
-  { value: "industrial", label: "Industrial", defaultColor: "#525252" },
-  { value: "self_storage", label: "Self Storage", defaultColor: "#0d9488" },
-  { value: "affordable_housing", label: "Affordable Housing", defaultColor: "#db2777" },
-  { value: "other", label: "Other", defaultColor: "#d03238" },
+  { value: "apartment", label: "Apartment", defaultColor: "#d03238" },
+  { value: "mhc", label: "MHC", defaultColor: "#b02a2f" },
+  { value: "office", label: "Office", defaultColor: "#8b2025" },
+  { value: "retail", label: "Retail", defaultColor: "#e05a5f" },
+  { value: "industrial", label: "Industrial", defaultColor: "#6b7280" },
+  { value: "self_storage", label: "Self Storage", defaultColor: "#9ca3af" },
+  { value: "affordable_housing", label: "Affordable Housing", defaultColor: "#f07378" },
+  { value: "other", label: "Other", defaultColor: "#4b5563" },
 ] as const;
 
 export interface UserPreferences {

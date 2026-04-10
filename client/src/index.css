@@ -66,10 +66,10 @@
   --input: oklch(0.97 0 0);
   --ring: oklch(0.55 0.20 27);
   --chart-1: oklch(0.55 0.20 27);            /* NAI red */
-  --chart-2: oklch(0.52 0.16 200);           /* teal */
-  --chart-3: oklch(0.55 0.14 150);           /* green */
-  --chart-4: oklch(0.50 0.18 280);           /* purple */
-  --chart-5: oklch(0.65 0.18 60);            /* amber */
+  --chart-2: oklch(0.65 0.15 25);            /* light red */
+  --chart-3: oklch(0.45 0.18 27);            /* dark red */
+  --chart-4: oklch(0.50 0.04 0);             /* warm gray */
+  --chart-5: oklch(0.70 0.10 25);            /* rose */
   --sidebar: oklch(0.20 0 0);                /* near-black sidebar */
   --sidebar-foreground: oklch(0.92 0 0);
   --sidebar-primary: oklch(0.55 0.20 27);    /* NAI red accent */

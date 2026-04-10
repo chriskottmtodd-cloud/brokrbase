@@ -1,43 +1,44 @@
-// ─── Priority Colors ─────────────────────────────────────────────────────────
+// ─── Priority Colors (red intensity scale) ──────────────────────────────────
 export const priorityColors: Record<string, string> = {
-  hot: "bg-red-500/20 text-red-400 border-red-500/30",
-  warm: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  cold: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  inactive: "bg-slate-500/20 text-slate-400 border-slate-500/30",
-  urgent: "text-red-400 border-red-400/40 bg-red-400/10",
-  high: "text-amber-400 border-amber-400/40 bg-amber-400/10",
-  medium: "text-blue-400 border-blue-400/40 bg-blue-400/10",
-  low: "text-slate-400 border-slate-400/40 bg-slate-400/10",
+  hot: "bg-red-500/20 text-red-500 border-red-500/30",
+  warm: "bg-red-400/15 text-red-400 border-red-400/25",
+  cold: "bg-slate-400/15 text-slate-400 border-slate-400/25",
+  inactive: "bg-slate-300/15 text-slate-300 border-slate-300/20",
+  urgent: "text-red-500 border-red-500/40 bg-red-500/10",
+  high: "text-red-400 border-red-400/40 bg-red-400/10",
+  medium: "text-slate-500 border-slate-400/40 bg-slate-400/10",
+  low: "text-slate-400 border-slate-400/30 bg-slate-300/10",
 };
 
-// ─── Property Status Colors ──────────────────────────────────────────────────
+// ─── Property Status Colors (red → gray scale) ─────────────────────────────
 export const statusColors: Record<string, string> = {
-  researching:   "bg-slate-500/20 text-slate-400 border-slate-500/30",
-  prospecting:   "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  seller:        "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  listed:        "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  recently_sold: "bg-green-500/20 text-green-400 border-green-500/30",
+  researching:   "bg-slate-400/15 text-slate-400 border-slate-400/25",
+  prospecting:   "bg-red-400/15 text-red-400 border-red-400/25",
+  seller:        "bg-red-500/20 text-red-500 border-red-500/30",
+  listed:        "bg-red-600/20 text-red-600 border-red-600/30",
+  under_contract: "bg-red-700/20 text-red-700 border-red-700/30",
+  recently_sold: "bg-slate-500/20 text-slate-500 border-slate-500/30",
 };
 
 // ─── Listing Stage Colors ────────────────────────────────────────────────────
 export const stageColors: Record<string, string> = {
-  new:            "bg-slate-500/20 text-slate-400 border-slate-500/30",
-  active:         "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  under_contract: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  closed:         "bg-green-500/20 text-green-400 border-green-500/30",
-  withdrawn:      "bg-red-500/20 text-red-400 border-red-500/30",
+  new:            "bg-slate-400/15 text-slate-400 border-slate-400/25",
+  active:         "bg-red-500/20 text-red-500 border-red-500/30",
+  under_contract: "bg-red-700/20 text-red-700 border-red-700/30",
+  closed:         "bg-slate-500/20 text-slate-500 border-slate-500/30",
+  withdrawn:      "bg-slate-300/15 text-slate-300 border-slate-300/20",
 };
 
 // ─── Buyer Interest Status Colors ────────────────────────────────────────────
 export const interestStatusColors: Record<string, string> = {
-  prospect:       "bg-slate-500/20 text-slate-400",
-  contacted:      "bg-blue-500/20 text-blue-400",
-  interested:     "bg-cyan-500/20 text-cyan-400",
-  toured:         "bg-purple-500/20 text-purple-400",
-  loi_submitted:  "bg-amber-500/20 text-amber-400",
-  under_contract: "bg-orange-500/20 text-orange-400",
-  closed:         "bg-green-500/20 text-green-400",
-  passed:         "bg-red-500/20 text-red-400",
+  prospect:       "bg-slate-400/15 text-slate-400",
+  contacted:      "bg-red-300/15 text-red-400",
+  interested:     "bg-red-400/20 text-red-400",
+  toured:         "bg-red-500/20 text-red-500",
+  loi_submitted:  "bg-red-600/20 text-red-600",
+  under_contract: "bg-red-700/20 text-red-700",
+  closed:         "bg-slate-500/20 text-slate-500",
+  passed:         "bg-slate-300/15 text-slate-300",
 };
 
 // ─── Property Type Labels ────────────────────────────────────────────────────

@@ -42,10 +42,10 @@ import { Search, Plus, Phone, Mail, Building2, User, ChevronRight, Filter, Type,
 import { cn } from "@/lib/utils";
 
 const priorityColors: Record<string, string> = {
-  hot: "bg-red-500/20 text-red-400 border-red-500/30",
-  warm: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  cold: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  inactive: "bg-slate-500/20 text-slate-400 border-slate-500/30",
+  hot: "bg-red-500/20 text-red-500 border-red-500/30",
+  warm: "bg-red-400/15 text-red-400 border-red-400/25",
+  cold: "bg-slate-400/15 text-slate-400 border-slate-400/25",
+  inactive: "bg-slate-300/15 text-slate-300 border-slate-300/20",
 };
 
 export default function Contacts() {
@@ -276,8 +276,8 @@ export default function Contacts() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-foreground">{contact.firstName} {contact.lastName}</span>
                     <Badge variant="outline" className={`text-xs px-1.5 py-0 ${priorityColors[contact.priority]}`}>{contact.priority}</Badge>
-                    {contact.isOwner && <Badge variant="outline" className="text-xs px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">Owner</Badge>}
-                    {contact.isBuyer && <Badge variant="outline" className="text-xs px-1.5 py-0 bg-green-500/10 text-green-400 border-green-500/30">Buyer</Badge>}
+                    {contact.isOwner && <Badge variant="outline" className="text-xs px-1.5 py-0 bg-slate-500/10 text-slate-500 border-slate-500/30">Owner</Badge>}
+                    {contact.isBuyer && <Badge variant="outline" className="text-xs px-1.5 py-0 bg-slate-400/10 text-slate-400 border-slate-400/30">Buyer</Badge>}
                   </div>
                   <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground flex-wrap">
                     {contact.company && <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{contact.company}</span>}

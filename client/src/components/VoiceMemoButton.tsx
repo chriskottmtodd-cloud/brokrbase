@@ -134,7 +134,7 @@ export function VoiceMemoButton() {
           </div>
         )}
         {(state === "uploading" || state === "processing") && (
-          <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-amber-600 text-white text-xs px-2 py-1 rounded-full whitespace-nowrap">
+          <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-red-400 text-white text-xs px-2 py-1 rounded-full whitespace-nowrap">
             {state === "uploading" ? "Uploading…" : "Analyzing…"}
           </div>
         )}
@@ -146,7 +146,7 @@ export function VoiceMemoButton() {
             state === "recording"
               ? "bg-red-600 hover:bg-red-700 animate-pulse"
               : state === "uploading" || state === "processing"
-                ? "bg-amber-600 hover:bg-amber-700"
+                ? "bg-red-400 hover:bg-red-500"
                 : "bg-primary hover:bg-primary/90"
           }`}
           onClick={

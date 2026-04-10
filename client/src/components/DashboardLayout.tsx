@@ -254,9 +254,9 @@ function DashboardLayoutContent({
                       isActive={isActive}
                       onClick={() => { setLocation(item.path); if (isMobile) toggleSidebar(); }}
                       tooltip={item.label}
-                      className={`h-9 transition-all font-normal ${isActive ? "border-l-2 border-[oklch(0.68_0.14_60)] pl-[calc(0.5rem-2px)] rounded-l-none" : "border-l-2 border-transparent"}`}
+                      className={`h-9 transition-all font-normal ${isActive ? "border-l-2 border-red-500 pl-[calc(0.5rem-2px)] rounded-l-none" : "border-l-2 border-transparent"}`}
                     >
-                      <item.icon className={`h-4 w-4 ${isActive ? "text-[oklch(0.68_0.14_60)]" : "text-muted-foreground"}`} />
+                      <item.icon className={`h-4 w-4 ${isActive ? "text-red-500" : "text-muted-foreground"}`} />
                       <span className={isActive ? "text-sidebar-foreground font-semibold" : "text-muted-foreground"}>
                         {item.label}
                       </span>

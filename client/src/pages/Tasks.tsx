@@ -50,10 +50,10 @@ interface Task {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const priorityConfig: Record<string, { border: string; badge: string; label: string }> = {
-  urgent: { border: "border-l-red-500",    badge: "bg-red-500/10 text-red-400 border-red-500/30",    label: "Urgent" },
-  high:   { border: "border-l-orange-500", badge: "bg-orange-500/10 text-orange-400 border-orange-500/30", label: "High" },
-  medium: { border: "border-l-amber-500",  badge: "bg-amber-500/10 text-amber-400 border-amber-500/30",  label: "Medium" },
-  low:    { border: "border-l-slate-500",  badge: "bg-slate-500/10 text-slate-400 border-slate-500/30",  label: "Low" },
+  urgent: { border: "border-l-red-600",    badge: "bg-red-500/10 text-red-500 border-red-500/30",    label: "Urgent" },
+  high:   { border: "border-l-red-400",   badge: "bg-red-400/10 text-red-400 border-red-400/30",   label: "High" },
+  medium: { border: "border-l-slate-400",  badge: "bg-slate-400/10 text-slate-500 border-slate-400/30",  label: "Medium" },
+  low:    { border: "border-l-slate-300",  badge: "bg-slate-300/10 text-slate-400 border-slate-300/30",  label: "Low" },
 };
 const typeIcons: Record<string, React.ReactNode> = {
   call:      <Phone className="h-3 w-3" />,
@@ -70,8 +70,8 @@ function getDueBadge(dueAt?: Date | null) {
   if (!dueAt) return null;
   const d = new Date(dueAt);
   if (isPast(d) && !isToday(d)) return <Badge variant="outline" className="text-[10px] px-1 py-0 bg-red-500/10 text-red-400 border-red-500/30">Overdue</Badge>;
-  if (isToday(d))    return <Badge variant="outline" className="text-[10px] px-1 py-0 bg-amber-500/10 text-amber-400 border-amber-500/30">Today</Badge>;
-  if (isTomorrow(d)) return <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">Tomorrow</Badge>;
+  if (isToday(d))    return <Badge variant="outline" className="text-[10px] px-1 py-0 bg-red-400/10 text-red-400 border-red-400/30">Today</Badge>;
+  if (isTomorrow(d)) return <Badge variant="outline" className="text-[10px] px-1 py-0 bg-slate-400/10 text-slate-500 border-slate-400/30">Tomorrow</Badge>;
   return <span className="text-xs text-muted-foreground">{format(d, "MMM d")}</span>;
 }
 
