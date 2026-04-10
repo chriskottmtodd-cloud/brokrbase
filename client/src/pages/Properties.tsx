@@ -22,7 +22,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
-import { ALL_PROPERTY_TYPES, getEnabledTypes, parsePreferences } from "./Settings";
+import { ALL_PROPERTY_TYPES, getEnabledTypes, getTypeColor, parsePreferences, type UserPreferences } from "./Settings";
 
 export default function Properties() {
   const [, setLocation] = useLocation();
@@ -75,34 +75,44 @@ export default function Properties() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {properties?.map((p) => (
-          <Link key={p.id} href={`/properties/${p.id}`}>
-            <Card className="hover:bg-muted/40 cursor-pointer h-full">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-2">
-                  <div className="h-9 w-9 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-                    <Building2 className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{p.name}</div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                      <Badge variant="outline" className="text-[10px] capitalize">
-                        {p.propertyType.replace("_", " ")}
-                      </Badge>
-                      {p.unitCount && <span>{p.unitCount} units</span>}
+        {properties?.map((p) => {
+          const color = getTypeColor(prefs, p.propertyType);
+          return (
+            <Link key={p.id} href={`/properties/${p.id}`}>
+              <Card className="hover:bg-muted/40 cursor-pointer h-full">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-2">
+                    <div
+                      className="h-9 w-9 rounded-md flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: color + "22", color }}
+                    >
+                      <Building2 className="h-4 w-4" />
                     </div>
-                    {p.city && (
-                      <div className="text-xs text-muted-foreground mt-1 truncate">
-                        {p.city}
-                        {p.state ? `, ${p.state}` : ""}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{p.name}</div>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] capitalize"
+                          style={{ borderColor: color + "55", color }}
+                        >
+                          {p.propertyType.replace("_", " ")}
+                        </Badge>
+                        {p.unitCount && <span>{p.unitCount} units</span>}
                       </div>
-                    )}
+                      {p.city && (
+                        <div className="text-xs text-muted-foreground mt-1 truncate">
+                          {p.city}
+                          {p.state ? `, ${p.state}` : ""}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
 
       {showCreate && (

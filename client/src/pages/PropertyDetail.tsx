@@ -49,7 +49,7 @@ import {
   Users,
 } from "lucide-react";
 import { ActivityDetailModal } from "@/components/ActivityDetailModal";
-import { ALL_PROPERTY_TYPES, getEnabledTypes, parsePreferences } from "./Settings";
+import { ALL_PROPERTY_TYPES, getEnabledTypes, getTypeColor, parsePreferences } from "./Settings";
 
 const activityIcons: Record<string, React.ReactNode> = {
   call: <Phone className="h-3.5 w-3.5" />,
@@ -123,6 +123,7 @@ export default function PropertyDetail() {
   const fullAddress = [property.address, property.city, property.state, property.zip]
     .filter(Boolean)
     .join(", ");
+  const typeColor = getTypeColor(prefs, property.propertyType);
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-5">
@@ -135,13 +136,20 @@ export default function PropertyDetail() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="h-12 w-12 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+          <div
+            className="h-12 w-12 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: typeColor + "22", color: typeColor }}
+          >
             <Building2 className="h-6 w-6" />
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold truncate">{property.name}</h1>
             <div className="flex items-center gap-2 flex-wrap mt-1">
-              <Badge variant="outline" className="capitalize">
+              <Badge
+                variant="outline"
+                className="capitalize"
+                style={{ borderColor: typeColor + "55", color: typeColor }}
+              >
                 {property.propertyType.replace("_", " ")}
               </Badge>
               <Badge variant="outline" className="capitalize">
