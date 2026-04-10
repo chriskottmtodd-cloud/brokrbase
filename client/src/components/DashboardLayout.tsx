@@ -329,7 +329,7 @@ function DashboardLayoutContent({
         )}
         <main className="flex-1 overflow-auto">{children}</main>
       </SidebarInset>
-      <VoiceMemoButton />
+      {location !== "/map" && <VoiceMemoButton />}
     </>
   );
 }

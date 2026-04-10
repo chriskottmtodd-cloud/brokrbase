@@ -961,10 +961,12 @@ function PropertyCard({
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState(property.notes ?? "");
+  const [localNotes, setLocalNotes] = useState(property.notes);
   const utils = trpc.useUtils();
   const updateNotes = trpc.properties.update.useMutation({
     onSuccess: () => {
       toast.success("Notes saved");
+      setLocalNotes(notesText || null);
       setEditingNotes(false);
       utils.properties.forMap.invalidate();
     },
@@ -1089,61 +1091,58 @@ function PropertyCard({
           </div>
         )}
 
-        {/* Notes — editable */}
+        {/* Notes — tap to edit */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notes</div>
-            {!editingNotes && (
-              <button
-                className="text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setNotesText(property.notes ?? "");
-                  setEditingNotes(true);
-                }}
-              >
-                {property.notes ? "Edit" : "+ Add note"}
-              </button>
-            )}
-          </div>
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</div>
           {editingNotes ? (
             <div className="space-y-1.5">
               <Textarea
-                rows={4}
+                rows={5}
                 value={notesText}
                 onChange={(e) => setNotesText(e.target.value)}
-                className="text-xs"
+                className="text-sm"
                 autoFocus
+                onFocus={(e) => {
+                  // Move cursor to end on iOS
+                  const val = e.target.value;
+                  e.target.value = "";
+                  e.target.value = val;
+                }}
               />
-              <div className="flex gap-1.5">
+              <div className="flex gap-2">
                 <Button
                   size="sm"
-                  className="h-7 text-xs"
+                  className="h-9 text-sm flex-1"
                   disabled={updateNotes.isPending}
-                  onClick={() =>
+                  onClick={() => {
                     updateNotes.mutate({
                       id: property.id,
                       data: { notes: notesText || null },
-                    })
-                  }
+                    });
+                  }}
                 >
                   {updateNotes.isPending ? "Saving..." : "Save"}
                 </Button>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs"
+                  variant="outline"
+                  className="h-9 text-sm"
                   onClick={() => setEditingNotes(false)}
                 >
                   Cancel
                 </Button>
               </div>
             </div>
-          ) : property.notes ? (
-            <div className="border rounded-md p-2 text-xs whitespace-pre-wrap bg-muted/20">
-              {property.notes}
-            </div>
           ) : (
-            <p className="text-xs text-muted-foreground italic">No notes yet</p>
+            <div
+              className="border rounded-md p-3 text-sm whitespace-pre-wrap bg-muted/20 min-h-[44px] cursor-text active:bg-muted/40"
+              onClick={() => {
+                setNotesText(localNotes ?? "");
+                setEditingNotes(true);
+              }}
+            >
+              {localNotes || <span className="text-muted-foreground italic">Tap to add notes...</span>}
+            </div>
           )}
         </div>
 
