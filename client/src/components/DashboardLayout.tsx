@@ -222,33 +222,31 @@ function DashboardLayoutContent({
         <Sidebar collapsible="icon" className="border-r border-border" disableTransition={isResizing}>
           {/* Header */}
           <SidebarHeader className="border-b border-border">
-            <div className="px-3 pt-3 pb-3 w-full">
-              {!isCollapsed ? (
-                <div className="flex items-center gap-3">
-                  <img src="/logo.png" alt="Brokrbase" className="h-12 w-12 shrink-0" />
-                  <span className="text-lg font-bold tracking-tight flex-1" style={{ color: "#d03238" }}>
-                    Brokrbase
-                  </span>
-                  <button
-                    onClick={toggleSidebar}
-                    className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors shrink-0"
-                    aria-label="Toggle navigation"
-                  >
-                    <PanelLeft className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex justify-center">
-                  <button
-                    onClick={toggleSidebar}
-                    className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors"
-                    aria-label="Toggle navigation"
-                  >
-                    <PanelLeft className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
-              )}
-            </div>
+            {!isCollapsed ? (
+              <div className="flex items-center gap-3 px-3 py-3">
+                <img src="/logo.png" alt="Brokrbase" className="h-12 w-12 shrink-0" />
+                <span className="text-lg font-bold tracking-tight flex-1" style={{ color: "#d03238" }}>
+                  Brokrbase
+                </span>
+                <button
+                  onClick={toggleSidebar}
+                  className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors shrink-0"
+                  aria-label="Toggle navigation"
+                >
+                  <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-3">
+                <button
+                  onClick={toggleSidebar}
+                  className="h-9 w-9 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
+                  aria-label="Toggle navigation"
+                >
+                  <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+            )}
           </SidebarHeader>
 
           {/* Navigation */}
