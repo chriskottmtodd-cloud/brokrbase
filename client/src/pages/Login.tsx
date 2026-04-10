@@ -55,6 +55,7 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="w-full max-w-sm mx-auto p-8">
         <div className="text-center mb-8">
+          <img src="/logo.png" alt="Brokrbase" className="h-20 w-20 mx-auto mb-3" />
           <h1 className="text-3xl font-bold" style={{ color: "#d03238" }}>Brokrbase</h1>
           <p className="text-gray-500 mt-2">The CRM that updates itself.</p>
         </div>
