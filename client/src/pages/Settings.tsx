@@ -18,6 +18,7 @@ export const ALL_PROPERTY_TYPES = [
   { value: "industrial", label: "Industrial", defaultColor: "#525252" },
   { value: "self_storage", label: "Self Storage", defaultColor: "#0d9488" },
   { value: "affordable_housing", label: "Affordable Housing", defaultColor: "#db2777" },
+  { value: "land", label: "Land", defaultColor: "#92400e" },
   { value: "other", label: "Other", defaultColor: "#d03238" },
 ] as const;
 

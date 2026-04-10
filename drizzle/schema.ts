@@ -131,7 +131,7 @@ export const properties = mysqlTable("properties", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   name: varchar("name", { length: 200 }).notNull(),
-  propertyType: mysqlEnum("propertyType", ["mhc", "apartment", "affordable_housing", "self_storage", "other", "industrial", "office", "retail"]).notNull(),
+  propertyType: mysqlEnum("propertyType", ["mhc", "apartment", "affordable_housing", "self_storage", "other", "industrial", "office", "retail", "land"]).notNull(),
   address: varchar("address", { length: 500 }),
   city: varchar("city", { length: 100 }),
   state: varchar("state", { length: 50 }),
@@ -167,6 +167,15 @@ export const properties = mysqlTable("properties", {
   // the map, the shape is stored here. Pin location stays in lat/lng.
   // Format: { "type": "Polygon", "coordinates": [[[lng,lat],[lng,lat],...]] }
   boundary: text("boundary"),
+  // Type-specific fields
+  clearHeight: int("clearHeight"),
+  dockDoors: int("dockDoors"),
+  zoning: varchar("zoning", { length: 200 }),
+  parkingSpaces: int("parkingSpaces"),
+  tenantName: varchar("tenantName", { length: 200 }),
+  leaseExpiration: timestamp("leaseExpiration"),
+  occupancyRate: float("occupancyRate"),
+  customFields: text("customFields"),
   notes: text("notes"),
   tags: text("tags"),
   lastContactedAt: timestamp("lastContactedAt"),
