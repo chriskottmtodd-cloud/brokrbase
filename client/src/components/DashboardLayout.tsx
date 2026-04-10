@@ -222,25 +222,25 @@ function DashboardLayoutContent({
         <Sidebar collapsible="icon" className="border-r border-border" disableTransition={isResizing}>
           {/* Header */}
           <SidebarHeader className="border-b border-border">
-            <div className="px-3 pt-4 pb-3 w-full">
+            <div className="px-3 pt-3 pb-3 w-full">
               {!isCollapsed ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <img src="/logo.png" alt="Brokrbase" className="h-8 w-8 shrink-0" />
-                      <span className="text-xl font-bold tracking-tight" style={{ color: "#d03238" }}>
-                        Brokrbase
-                      </span>
-                    </div>
+                <div className="flex items-center gap-3">
+                  <img src="/logo.png" alt="Brokrbase" className="h-12 w-12 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-lg font-bold tracking-tight block" style={{ color: "#d03238" }}>
+                      Brokrbase
+                    </span>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1">
+                    <GlobalSearch />
                     <button
                       onClick={toggleSidebar}
-                      className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors shrink-0"
+                      className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
                       aria-label="Toggle navigation"
                     >
                       <PanelLeft className="h-4 w-4 text-muted-foreground" />
                     </button>
                   </div>
-                  <GlobalSearch />
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">
