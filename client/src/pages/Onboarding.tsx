@@ -116,16 +116,6 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           autoFocus
         />
       </div>
-      <div>
-        <Label>Email signature</Label>
-        <Textarea
-          rows={4}
-          value={form.signature}
-          onChange={(e) => setForm({ ...form, signature: e.target.value })}
-          placeholder={"Best regards,\nBlake Smith\nNAI Select\n(208) 555-1234"}
-          className="font-mono text-sm"
-        />
-      </div>
       <div className="flex gap-2 pt-2">
         <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
         <Button
