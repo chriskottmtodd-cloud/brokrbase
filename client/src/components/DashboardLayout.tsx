@@ -221,23 +221,36 @@ function DashboardLayoutContent({
       <div className="relative" ref={sidebarRef}>
         <Sidebar collapsible="icon" className="border-r border-border" disableTransition={isResizing}>
           {/* Header */}
-          <SidebarHeader className="h-16 justify-center border-b border-border">
-            <div className="flex items-center gap-2.5 px-2 w-full">
-              <button
-                onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors shrink-0"
-                aria-label="Toggle navigation"
-              >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
-              </button>
-              {!isCollapsed && (
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <img src="/icon-192.png" alt="Brokrbase" className="h-5 w-5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-foreground truncate leading-tight">Brokrbase</p>
-                    <p className="text-xs text-muted-foreground truncate">{profile?.marketFocus ? profile.marketFocus.slice(0, 50) : "Commercial Real Estate"}</p>
+          <SidebarHeader className="border-b border-border">
+            <div className="px-3 pt-4 pb-3 w-full">
+              {!isCollapsed ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <img src="/icon-192.png" alt="Brokrbase" className="h-8 w-8 shrink-0" />
+                      <span className="text-xl font-bold tracking-tight" style={{ color: "#d03238" }}>
+                        Brokrbase
+                      </span>
+                    </div>
+                    <button
+                      onClick={toggleSidebar}
+                      className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors shrink-0"
+                      aria-label="Toggle navigation"
+                    >
+                      <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                    </button>
                   </div>
                   <GlobalSearch />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={toggleSidebar}
+                    className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors"
+                    aria-label="Toggle navigation"
+                  >
+                    <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                  </button>
                 </div>
               )}
             </div>
