@@ -961,14 +961,13 @@ function PropertyCard({
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState(property.notes ?? "");
-  const [localNotes, setLocalNotes] = useState(property.notes);
   const utils = trpc.useUtils();
   const updateNotes = trpc.properties.update.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Notes saved");
-      setLocalNotes(notesText || null);
       setEditingNotes(false);
-      utils.properties.forMap.invalidate();
+      // Wait for cache refresh so clicking away and back shows updated notes
+      await utils.properties.forMap.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -1137,11 +1136,11 @@ function PropertyCard({
             <div
               className="border rounded-md p-3 text-sm whitespace-pre-wrap bg-muted/20 min-h-[44px] cursor-text active:bg-muted/40"
               onClick={() => {
-                setNotesText(localNotes ?? "");
+                setNotesText(property.notes ?? "");
                 setEditingNotes(true);
               }}
             >
-              {localNotes || <span className="text-muted-foreground italic">Tap to add notes...</span>}
+              {property.notes || <span className="text-muted-foreground italic">Tap to add notes...</span>}
             </div>
           )}
         </div>
