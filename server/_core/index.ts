@@ -48,6 +48,9 @@ async function runSelfHealingMigrations() {
 async function startServer() {
   await runSelfHealingMigrations();
   const app = express();
+  // Railway / Render / Fly etc. sit behind a reverse proxy — trust it so
+  // req.ip, req.protocol and req.hostname read the forwarded headers.
+  app.set("trust proxy", 1);
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

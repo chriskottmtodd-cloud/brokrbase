@@ -67,89 +67,109 @@ export function registerPasswordAuthRoutes(app: Express) {
 
   // ─── Login ────────────────────────────────────────────────────────────────
   app.post("/api/auth/password-login", async (req: Request, res: Response) => {
-    const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
-    if (isRateLimited(ip)) {
-      res.status(429).json({ error: "Too many login attempts. Try again in 15 minutes." });
-      return;
-    }
+    try {
+      const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
+      if (isRateLimited(ip)) {
+        res.status(429).json({ error: "Too many login attempts. Try again in 15 minutes." });
+        return;
+      }
 
-    const { email, password } = req.body as { email?: string; password?: string };
+      const { email, password } = req.body as { email?: string; password?: string };
 
-    if (!email || !password) {
-      res.status(400).json({ error: "email and password are required" });
-      return;
-    }
+      if (!email || !password) {
+        res.status(400).json({ error: "email and password are required" });
+        return;
+      }
 
-    // ─── Try DB-based user first ──────────────────────────────────────────
-    const dbUser = await db.getUserByEmail(email);
-    if (dbUser?.passwordHash) {
-      const match = await bcrypt.compare(password, dbUser.passwordHash);
-      if (!match) {
+      // ─── Try DB-based user first ──────────────────────────────────────────
+      let dbUser: Awaited<ReturnType<typeof db.getUserByEmail>> | undefined;
+      try {
+        dbUser = await db.getUserByEmail(email);
+      } catch (dbErr) {
+        console.error("[Auth] DB lookup failed (continuing to admin fallback):", dbErr);
+      }
+
+      if (dbUser?.passwordHash) {
+        const match = await bcrypt.compare(password, dbUser.passwordHash);
+        if (!match) {
+          res.status(401).json({ error: "Invalid email or password" });
+          return;
+        }
+
+        clearRateLimit(ip);
+
+        await db.upsertUser({
+          openId: dbUser.openId,
+          lastSignedIn: new Date(),
+        });
+
+        const sessionToken = await sdk.createSessionToken(dbUser.openId, {
+          name: dbUser.name ?? "User",
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        const cookieOptions = getSessionCookieOptions(req);
+        res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        res.json({ ok: true });
+        return;
+      }
+
+      // ─── Fall back to env-var admin ───────────────────────────────────────
+      if (!ENV.adminEmail || !ENV.adminPasswordHash) {
+        res.status(401).json({ error: "Invalid email or password" });
+        return;
+      }
+
+      if (!ENV.adminPasswordHash.startsWith("$2")) {
+        console.error("ADMIN_PASSWORD_HASH must be a bcrypt hash.");
+        res.status(503).json({ error: "Password login is misconfigured" });
+        return;
+      }
+
+      const emailMatch = email.trim().toLowerCase() === ENV.adminEmail.trim().toLowerCase();
+      const passwordMatch = await bcrypt.compare(password, ENV.adminPasswordHash);
+
+      if (!emailMatch || !passwordMatch) {
         res.status(401).json({ error: "Invalid email or password" });
         return;
       }
 
       clearRateLimit(ip);
 
-      await db.upsertUser({
-        openId: dbUser.openId,
-        lastSignedIn: new Date(),
-      });
+      let existingUser: Awaited<ReturnType<typeof db.getUserByEmail>> | undefined;
+      try {
+        existingUser = await db.getUserByEmail(ENV.adminEmail);
+      } catch {
+        // DB may be unreachable — continue without existing user
+      }
+      const ownerOpenId = existingUser?.openId
+        || ENV.ownerOpenId
+        || `local-admin-${ENV.adminEmail.trim().toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
 
-      const sessionToken = await sdk.createSessionToken(dbUser.openId, {
-        name: dbUser.name ?? "User",
+      try {
+        await db.upsertUser({
+          openId: ownerOpenId,
+          name: existingUser?.name ?? process.env.OWNER_NAME ?? "Owner",
+          email: ENV.adminEmail,
+          loginMethod: "password",
+          lastSignedIn: new Date(),
+          role: "admin",
+        });
+      } catch (dbErr) {
+        console.error("[Auth] Failed to upsert admin user:", dbErr);
+      }
+
+      const sessionToken = await sdk.createSessionToken(ownerOpenId, {
+        name: existingUser?.name ?? process.env.OWNER_NAME ?? "Owner",
         expiresInMs: ONE_YEAR_MS,
       });
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.json({ ok: true });
-      return;
+    } catch (err) {
+      console.error("[Auth] Login error:", err);
+      res.status(500).json({ error: "Internal server error during login" });
     }
-
-    // ─── Fall back to env-var admin ───────────────────────────────────────
-    if (!ENV.adminEmail || !ENV.adminPasswordHash) {
-      res.status(401).json({ error: "Invalid email or password" });
-      return;
-    }
-
-    if (!ENV.adminPasswordHash.startsWith("$2")) {
-      console.error("ADMIN_PASSWORD_HASH must be a bcrypt hash.");
-      res.status(503).json({ error: "Password login is misconfigured" });
-      return;
-    }
-
-    const emailMatch = email.trim().toLowerCase() === ENV.adminEmail.trim().toLowerCase();
-    const passwordMatch = await bcrypt.compare(password, ENV.adminPasswordHash);
-
-    if (!emailMatch || !passwordMatch) {
-      res.status(401).json({ error: "Invalid email or password" });
-      return;
-    }
-
-    clearRateLimit(ip);
-
-    const existingUser = await db.getUserByEmail(ENV.adminEmail);
-    const ownerOpenId = existingUser?.openId
-      || ENV.ownerOpenId
-      || `local-admin-${ENV.adminEmail.trim().toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
-
-    await db.upsertUser({
-      openId: ownerOpenId,
-      name: existingUser?.name ?? process.env.OWNER_NAME ?? "Owner",
-      email: ENV.adminEmail,
-      loginMethod: "password",
-      lastSignedIn: new Date(),
-      role: "admin",
-    });
-
-    const sessionToken = await sdk.createSessionToken(ownerOpenId, {
-      name: existingUser?.name ?? process.env.OWNER_NAME ?? "Owner",
-      expiresInMs: ONE_YEAR_MS,
-    });
-
-    const cookieOptions = getSessionCookieOptions(req);
-    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-    res.json({ ok: true });
   });
 }
