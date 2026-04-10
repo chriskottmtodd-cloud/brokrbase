@@ -226,24 +226,19 @@ function DashboardLayoutContent({
               {!isCollapsed ? (
                 <div className="flex items-center gap-3">
                   <img src="/logo.png" alt="Brokrbase" className="h-12 w-12 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-lg font-bold tracking-tight block" style={{ color: "#d03238" }}>
-                      Brokrbase
-                    </span>
-                  </div>
-                  <div className="shrink-0 flex items-center gap-1">
-                    <GlobalSearch />
-                    <button
-                      onClick={toggleSidebar}
-                      className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors"
-                      aria-label="Toggle navigation"
-                    >
-                      <PanelLeft className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  </div>
+                  <span className="text-lg font-bold tracking-tight flex-1" style={{ color: "#d03238" }}>
+                    Brokrbase
+                  </span>
+                  <button
+                    onClick={toggleSidebar}
+                    className="h-7 w-7 flex items-center justify-center hover:bg-accent rounded-md transition-colors shrink-0"
+                    aria-label="Toggle navigation"
+                  >
+                    <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                  </button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2">
+                <div className="flex justify-center">
                   <button
                     onClick={toggleSidebar}
                     className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors"
@@ -267,7 +262,7 @@ function DashboardLayoutContent({
                       isActive={isActive}
                       onClick={() => { setLocation(item.path); if (isMobile) toggleSidebar(); }}
                       tooltip={item.label}
-                      className={`h-9 transition-all font-normal ${isActive ? "border-l-2 border-red-500 pl-[calc(0.5rem-2px)] rounded-l-none" : "border-l-2 border-transparent"}`}
+                      className={`h-9 transition-all font-normal ${isActive ? "bg-red-500/10 rounded-md" : ""}`}
                     >
                       <item.icon className={`h-4 w-4 ${isActive ? "text-red-500" : "text-muted-foreground"}`} />
                       <span className={isActive ? "text-sidebar-foreground font-semibold" : "text-muted-foreground"}>
@@ -289,7 +284,7 @@ function DashboardLayoutContent({
           <SidebarFooter className="p-3 border-t border-border">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent/50 transition-colors w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <button className={`flex items-center gap-3 rounded-lg py-2 hover:bg-accent/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isCollapsed ? "justify-center px-0 w-full" : "px-2 w-full text-left"}`}>
                   <Avatar className="h-8 w-8 border border-border shrink-0">
                     <AvatarFallback className="text-xs font-semibold bg-primary/20 text-primary">
                       {user?.name?.charAt(0).toUpperCase() ?? "U"}
