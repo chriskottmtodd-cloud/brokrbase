@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import Login from "@/pages/Login";
+import Onboarding from "@/pages/Onboarding";
 import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -18,6 +20,7 @@ import EmailStudio from "./pages/email-studio";
 import MapView from "./pages/MapView";
 import Settings from "./pages/Settings";
 import Import from "./pages/Import";
+import { trpc } from "@/lib/trpc";
 
 function Router() {
   return (
@@ -40,6 +43,38 @@ function Router() {
       </Switch>
     </DashboardLayout>
   );
+}
+
+function OnboardingGate({ children }: { children: React.ReactNode }) {
+  const profileQuery = trpc.users.getMyProfile.useQuery();
+  const [dismissed, setDismissed] = useState(false);
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <p className="text-gray-500">Loading...</p>
+      </div>
+    );
+  }
+
+  const needsOnboarding =
+    !dismissed &&
+    profileQuery.data &&
+    !profileQuery.data.company &&
+    !profileQuery.data.marketFocus;
+
+  if (needsOnboarding) {
+    return (
+      <Onboarding
+        onComplete={() => {
+          setDismissed(true);
+          profileQuery.refetch();
+        }}
+      />
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function App() {
@@ -68,7 +103,9 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster theme="light" />
-          <Router />
+          <OnboardingGate>
+            <Router />
+          </OnboardingGate>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
