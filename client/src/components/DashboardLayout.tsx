@@ -92,7 +92,7 @@ function PasswordLoginScreen() {
     <div className="flex items-center justify-center min-h-screen bg-background">
       <div className="flex flex-col items-center gap-6 p-8 max-w-sm w-full">
         <div className="flex items-center gap-3 mb-2">
-          <img src="/icon-192.png" alt="Brokrbase" className="h-10 w-10" />
+          <img src="/logo.svg" alt="Brokrbase" className="h-10 w-10" />
           <div>
             <h1 className="text-xl font-bold text-foreground">Brokrbase</h1>
             <p className="text-xs text-muted-foreground">Your CRM, your way</p>
@@ -227,7 +227,7 @@ function DashboardLayoutContent({
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <img src="/icon-192.png" alt="Brokrbase" className="h-8 w-8 shrink-0" />
+                      <img src="/logo.svg" alt="Brokrbase" className="h-8 w-8 shrink-0" />
                       <span className="text-xl font-bold tracking-tight" style={{ color: "#d03238" }}>
                         Brokrbase
                       </span>
