@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Edit2, Plus, Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -129,6 +130,14 @@ export function VoiceMemoReviewPanel({
 
   const utils = trpc.useUtils();
 
+  // New contact creation
+  const [showCreateContact, setShowCreateContact] = useState(false);
+  const [newContactForm, setNewContactForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "" });
+  const createContact = trpc.contacts.create.useMutation();
+
+  // Task editing
+  const [editingTaskIdx, setEditingTaskIdx] = useState<number | null>(null);
+
   const applyActions = trpc.callIntel.applyCallActions.useMutation();
   const createLink = trpc.contactLinks.create.useMutation();
 
@@ -231,32 +240,114 @@ export function VoiceMemoReviewPanel({
       {tasks.length > 0 && (
         <Section title={`New Tasks (${tasks.length})`}>
           {tasks.map((t, i) => (
-            <CheckItem
-              key={i}
-              checked={selTasks.has(i)}
-              onToggle={() => toggle(selTasks, setSelTasks, i)}
-              label={t.title}
-              sublabel={`${t.priority} · due in ${t.dueDaysFromNow}d`}
-            >
-              <EntityMatch
-                entity={t.contact ?? emptyRef("contact")}
-                type="contact"
-                onPick={(picked) => {
-                  const next = [...tasks];
-                  next[i] = { ...next[i], contact: picked };
-                  setTasks(next);
-                }}
-              />
-              <EntityMatch
-                entity={t.property ?? emptyRef("property")}
-                type="property"
-                onPick={(picked) => {
-                  const next = [...tasks];
-                  next[i] = { ...next[i], property: picked };
-                  setTasks(next);
-                }}
-              />
-            </CheckItem>
+            <div key={i} className="flex items-start gap-2 border rounded-md p-2">
+              <Checkbox checked={selTasks.has(i)} onCheckedChange={() => toggle(selTasks, setSelTasks, i)} className="mt-0.5" />
+              <div className="flex-1 min-w-0">
+                {editingTaskIdx === i ? (
+                  <div className="space-y-2">
+                    <Input
+                      value={t.title}
+                      onChange={(e) => {
+                        const next = [...tasks];
+                        next[i] = { ...next[i], title: e.target.value };
+                        setTasks(next);
+                      }}
+                      className="h-7 text-xs"
+                      placeholder="Task title"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <Select
+                        value={t.priority}
+                        onValueChange={(v) => {
+                          const next = [...tasks];
+                          next[i] = { ...next[i], priority: v };
+                          setTasks(next);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-24">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRIORITY_VALUES.map((p) => (
+                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={t.type}
+                        onValueChange={(v) => {
+                          const next = [...tasks];
+                          next[i] = { ...next[i], type: v };
+                          setTasks(next);
+                        }}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-28">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TYPE_VALUES.map((tp) => (
+                            <SelectItem key={tp} value={tp}>{tp.replace("_", " ")}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground">Due in</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={t.dueDaysFromNow}
+                          onChange={(e) => {
+                            const next = [...tasks];
+                            next[i] = { ...next[i], dueDaysFromNow: parseInt(e.target.value) || 1 };
+                            setTasks(next);
+                          }}
+                          className="h-7 text-xs w-14"
+                        />
+                        <span className="text-xs text-muted-foreground">days</span>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingTaskIdx(null)}>
+                      Done editing
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-sm font-medium flex-1">{t.title}</div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingTaskIdx(i)}
+                        className="text-muted-foreground hover:text-foreground"
+                        title="Edit task"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{t.priority} · {t.type.replace("_", " ")} · due in {t.dueDaysFromNow}d</div>
+                  </div>
+                )}
+                <EntityMatch
+                  entity={t.contact ?? emptyRef("contact")}
+                  type="contact"
+                  onPick={(picked) => {
+                    const next = [...tasks];
+                    next[i] = { ...next[i], contact: picked };
+                    setTasks(next);
+                  }}
+                  onCreateContact={() => setShowCreateContact(true)}
+                />
+                <EntityMatch
+                  entity={t.property ?? emptyRef("property")}
+                  type="property"
+                  onPick={(picked) => {
+                    const next = [...tasks];
+                    next[i] = { ...next[i], property: picked };
+                    setTasks(next);
+                  }}
+                />
+              </div>
+            </div>
           ))}
         </Section>
       )}
@@ -303,6 +394,7 @@ export function VoiceMemoReviewPanel({
                   next[i] = { ...next[i], contact: picked };
                   setLinks(next);
                 }}
+                onCreateContact={() => setShowCreateContact(true)}
               />
               <EntityMatch
                 entity={l.property}
@@ -316,6 +408,100 @@ export function VoiceMemoReviewPanel({
             </CheckItem>
           ))}
         </Section>
+      )}
+
+      {/* Create new contact */}
+      {showCreateContact && (
+        <div className="border rounded-md p-3 space-y-2 bg-muted/30">
+          <div className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">Create New Contact</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              placeholder="First name"
+              value={newContactForm.firstName}
+              onChange={(e) => setNewContactForm({ ...newContactForm, firstName: e.target.value })}
+              className="h-7 text-xs"
+              autoFocus
+            />
+            <Input
+              placeholder="Last name"
+              value={newContactForm.lastName}
+              onChange={(e) => setNewContactForm({ ...newContactForm, lastName: e.target.value })}
+              className="h-7 text-xs"
+            />
+          </div>
+          <Input
+            placeholder="Email"
+            value={newContactForm.email}
+            onChange={(e) => setNewContactForm({ ...newContactForm, email: e.target.value })}
+            className="h-7 text-xs"
+          />
+          <Input
+            placeholder="Phone"
+            value={newContactForm.phone}
+            onChange={(e) => setNewContactForm({ ...newContactForm, phone: e.target.value })}
+            className="h-7 text-xs"
+          />
+          <Input
+            placeholder="Company"
+            value={newContactForm.company}
+            onChange={(e) => setNewContactForm({ ...newContactForm, company: e.target.value })}
+            className="h-7 text-xs"
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              disabled={!newContactForm.firstName || !newContactForm.lastName || createContact.isPending}
+              onClick={async () => {
+                try {
+                  const result = await createContact.mutateAsync({
+                    firstName: newContactForm.firstName,
+                    lastName: newContactForm.lastName,
+                    email: newContactForm.email || undefined,
+                    phone: newContactForm.phone || undefined,
+                    company: newContactForm.company || undefined,
+                  });
+                  const fullName = `${newContactForm.firstName} ${newContactForm.lastName}`;
+                  toast.success(`Created ${fullName}`);
+                  // Update any unmatched tasks to use this new contact
+                  const next = tasks.map((t) => {
+                    if (!t.contact?.id || t.contact.confidence === "none" || t.contact.confidence === "low") {
+                      return {
+                        ...t,
+                        contact: { id: result.id, name: fullName, confidence: "high" as Confidence, matchMethod: "created", candidateCount: 1 },
+                      };
+                    }
+                    return t;
+                  });
+                  setTasks(next);
+                  setShowCreateContact(false);
+                  setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
+                  utils.contacts.invalidate();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Failed to create contact");
+                }
+              }}
+            >
+              {createContact.isPending ? "Creating..." : "Create"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCreateContact(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!showCreateContact && (
+        <button
+          type="button"
+          onClick={() => setShowCreateContact(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <UserPlus className="h-3.5 w-3.5" /> Add new contact mentioned in memo
+        </button>
       )}
 
       {tasks.length === 0 && updates.length === 0 && links.length === 0 && (
@@ -377,10 +563,12 @@ function EntityMatch({
   entity,
   type,
   onPick,
+  onCreateContact,
 }: {
   entity: ResolvedRef;
   type: "contact" | "property";
   onPick: (picked: ResolvedRef) => void;
+  onCreateContact?: () => void;
 }) {
   const [showAlts, setShowAlts] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -478,7 +666,22 @@ function EntityMatch({
               </div>
             )}
             {query.length >= 1 && hits.length === 0 && (
-              <div className="text-[11px] text-muted-foreground px-2 py-1">No results</div>
+              <div className="text-[11px] text-muted-foreground px-2 py-1">
+                No results
+                {type === "contact" && onCreateContact && (
+                  <button
+                    type="button"
+                    className="ml-1 text-primary hover:underline"
+                    onClick={() => {
+                      onCreateContact();
+                      setShowSearch(false);
+                      setQuery("");
+                    }}
+                  >
+                    — Create new contact
+                  </button>
+                )}
+              </div>
             )}
             {hits.map((h) => (
               <button
