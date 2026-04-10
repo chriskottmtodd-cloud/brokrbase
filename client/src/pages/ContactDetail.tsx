@@ -36,10 +36,13 @@ import {
   ArrowLeft,
   Building2,
   Calendar,
+  Check,
   Edit2,
   Loader2,
   Mail,
   Phone,
+  Plus,
+  Save,
   Trash2,
   User as UserIcon,
 } from "lucide-react";
@@ -69,6 +72,14 @@ export default function ContactDetail() {
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [openActivityId, setOpenActivityId] = useState<number | null>(null);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState("");
+  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [newActivity, setNewActivity] = useState({ type: "call" as string, subject: "", notes: "" });
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editTaskForm, setEditTaskForm] = useState({ title: "", dueAt: "" });
 
   const utils = trpc.useUtils();
 
@@ -92,7 +103,57 @@ export default function ContactDetail() {
   const deleteContact = trpc.contacts.delete.useMutation({
     onSuccess: () => {
       toast.success("Contact deleted");
+      utils.contacts.list.invalidate();
+      utils.dashboard.metrics.invalidate();
       setLocation("/contacts");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateNotes = trpc.contacts.update.useMutation({
+    onSuccess: () => {
+      toast.success("Notes saved");
+      setEditingNotes(false);
+      utils.contacts.byId.invalidate({ id: contactId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createTask = trpc.tasks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Task created");
+      setShowAddTask(false);
+      setNewTask({ title: "", dueAt: "" });
+      utils.tasks.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateTask = trpc.tasks.update.useMutation({
+    onSuccess: () => {
+      toast.success("Task updated");
+      setEditingTaskId(null);
+      utils.tasks.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const completeTask = trpc.tasks.update.useMutation({
+    onSuccess: () => {
+      toast.success("Task completed");
+      utils.tasks.list.invalidate();
+      utils.dashboard.metrics.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createActivity = trpc.activities.create.useMutation({
+    onSuccess: () => {
+      toast.success("Activity logged");
+      setShowAddActivity(false);
+      setNewActivity({ type: "call", subject: "", notes: "" });
+      refetchActivities();
+      utils.dashboard.metrics.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -178,38 +239,152 @@ export default function ContactDetail() {
                   {[contact.address, contact.city, contact.state, contact.zip].filter(Boolean).join(", ")}
                 </div>
               )}
-              {contact.notes && (
-                <div className="pt-2 border-t mt-2">
-                  <div className="text-xs text-muted-foreground mb-1">Notes</div>
-                  <p className="whitespace-pre-wrap">{contact.notes}</p>
+              <div className="pt-2 border-t mt-2">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs text-muted-foreground">Notes</div>
+                  {!editingNotes && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs gap-1"
+                      onClick={() => {
+                        setNotesText(contact.notes ?? "");
+                        setEditingNotes(true);
+                      }}
+                    >
+                      <Edit2 className="h-3 w-3" />
+                      {contact.notes ? "Edit" : "Add note"}
+                    </Button>
+                  )}
                 </div>
-              )}
+                {editingNotes ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      rows={4}
+                      value={notesText}
+                      onChange={(e) => setNotesText(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="gap-1"
+                        disabled={updateNotes.isPending}
+                        onClick={() =>
+                          updateNotes.mutate({
+                            id: contactId,
+                            notes: notesText || undefined,
+                          })
+                        }
+                      >
+                        <Save className="h-3 w-3" />
+                        {updateNotes.isPending ? "Saving..." : "Save"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingNotes(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : contact.notes ? (
+                  <p className="whitespace-pre-wrap">{contact.notes}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No notes yet</p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Activity className="h-3.5 w-3.5" /> Activity History
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Activity className="h-3.5 w-3.5" /> Activity History
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddActivity(true)}
+                >
+                  <Plus className="h-3 w-3" /> Log Activity
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!activities?.length ? (
+              {showAddActivity && (
+                <div className="space-y-2 p-3 border rounded-md bg-muted/30 mb-4">
+                  <div className="flex gap-2">
+                    <Select
+                      value={newActivity.type}
+                      onValueChange={(v) => setNewActivity({ ...newActivity, type: v })}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="call">Call</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
+                        <SelectItem value="meeting">Meeting</SelectItem>
+                        <SelectItem value="note">Note</SelectItem>
+                        <SelectItem value="text">Text</SelectItem>
+                        <SelectItem value="voicemail">Voicemail</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Subject..."
+                      value={newActivity.subject}
+                      onChange={(e) => setNewActivity({ ...newActivity, subject: e.target.value })}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <Textarea
+                    rows={3}
+                    placeholder="Notes..."
+                    value={newActivity.notes}
+                    onChange={(e) => setNewActivity({ ...newActivity, notes: e.target.value })}
+                    className="text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={createActivity.isPending}
+                      onClick={() =>
+                        createActivity.mutate({
+                          type: newActivity.type as "call" | "email" | "meeting" | "note" | "text" | "voicemail",
+                          contactId,
+                          subject: newActivity.subject || undefined,
+                          notes: newActivity.notes || undefined,
+                        })
+                      }
+                    >
+                      {createActivity.isPending ? "Saving..." : "Log"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddActivity(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!activities?.length && !showAddActivity ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Activity className="h-8 w-8 mx-auto mb-2 opacity-20" />
                   <p className="text-sm">No activities logged yet</p>
-                  <p className="text-xs mt-1">Use the mic button to log a call or meeting.</p>
+                  <p className="text-xs mt-1">Use the mic button or click "Log Activity" above.</p>
                 </div>
               ) : (
                 <div className="space-y-0">
-                  {activities.map((activity, idx) => (
+                  {activities?.map((activity, idx) => (
                     <button
                       key={activity.id}
                       type="button"
                       onClick={() => setOpenActivityId(activity.id)}
                       className="w-full text-left flex gap-3 pb-4 relative hover:bg-muted/40 rounded-md -mx-2 px-2 py-1 transition-colors"
                     >
-                      {idx < activities.length - 1 && (
+                      {idx < (activities?.length ?? 0) - 1 && (
                         <div className="absolute left-6 top-9 bottom-0 w-px bg-border" />
                       )}
                       <div className="shrink-0 h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary z-10">
@@ -282,25 +457,125 @@ export default function ContactDetail() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Calendar className="h-3.5 w-3.5" /> Open Tasks
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5" /> Open Tasks
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddTask(true)}
+                >
+                  <Plus className="h-3 w-3" /> Add
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!tasks?.length ? (
+              {showAddTask && (
+                <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
+                  <Input
+                    placeholder="Task title..."
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                    autoFocus
+                  />
+                  <Input
+                    type="date"
+                    value={newTask.dueAt}
+                    onChange={(e) => setNewTask({ ...newTask, dueAt: e.target.value })}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!newTask.title || createTask.isPending}
+                      onClick={() =>
+                        createTask.mutate({
+                          title: newTask.title,
+                          contactId,
+                          type: "follow_up",
+                          priority: "medium",
+                          dueAt: newTask.dueAt ? new Date(newTask.dueAt) : undefined,
+                        })
+                      }
+                    >
+                      {createTask.isPending ? "Creating..." : "Create"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddTask(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!tasks?.length && !showAddTask ? (
                 <p className="text-sm text-muted-foreground italic">No open tasks</p>
               ) : (
                 <div className="space-y-2">
-                  {tasks.map((t) => (
-                    <div key={t.id} className="border rounded-md p-2">
-                      <div className="text-sm font-medium">{t.title}</div>
-                      {t.dueAt && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          Due {formatDistanceToNow(new Date(t.dueAt), { addSuffix: true })}
+                  {tasks?.map((t) =>
+                    editingTaskId === t.id ? (
+                      <div key={t.id} className="space-y-2 p-2 border rounded-md bg-muted/30">
+                        <Input
+                          value={editTaskForm.title}
+                          onChange={(e) => setEditTaskForm({ ...editTaskForm, title: e.target.value })}
+                          autoFocus
+                        />
+                        <Input
+                          type="date"
+                          value={editTaskForm.dueAt}
+                          onChange={(e) => setEditTaskForm({ ...editTaskForm, dueAt: e.target.value })}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            disabled={updateTask.isPending}
+                            onClick={() =>
+                              updateTask.mutate({
+                                id: t.id,
+                                title: editTaskForm.title,
+                                dueAt: editTaskForm.dueAt ? new Date(editTaskForm.dueAt) : undefined,
+                              })
+                            }
+                          >
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingTaskId(null)}>
+                            Cancel
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ) : (
+                      <div key={t.id} className="border rounded-md p-2 flex items-start gap-2">
+                        <button
+                          onClick={() =>
+                            completeTask.mutate({ id: t.id, status: "completed" })
+                          }
+                          className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
+                          title="Complete task"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          className="flex-1 text-left min-w-0"
+                          onClick={() => {
+                            setEditingTaskId(t.id);
+                            setEditTaskForm({
+                              title: t.title,
+                              dueAt: t.dueAt
+                                ? new Date(t.dueAt).toISOString().split("T")[0]
+                                : "",
+                            });
+                          }}
+                        >
+                          <div className="text-sm font-medium">{t.title}</div>
+                          {t.dueAt && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              Due {formatDistanceToNow(new Date(t.dueAt), { addSuffix: true })}
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
             </CardContent>

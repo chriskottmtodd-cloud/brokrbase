@@ -4,11 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Activity as ActivityIcon,
+  ArrowRight,
   Building2,
   CheckCircle2,
   ListChecks,
   Mail,
   Mic,
+  Settings,
+  Upload,
   Users,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -45,6 +48,54 @@ export default function Dashboard() {
           The CRM that updates itself. Tap the mic when you're done with a call.
         </p>
       </div>
+
+      {/* Getting started card for new users */}
+      {metrics &&
+        metrics.totalProperties === 0 &&
+        metrics.totalContacts === 0 && (
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="text-base">Getting Started</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Link
+                href="/import"
+                className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/40 transition-colors"
+              >
+                <Upload className="h-5 w-5 text-muted-foreground shrink-0" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">Import your data</div>
+                  <div className="text-xs text-muted-foreground">
+                    Upload contacts, properties, or Google My Maps pins
+                  </div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </Link>
+              <Link
+                href="/settings"
+                className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/40 transition-colors"
+              >
+                <Settings className="h-5 w-5 text-muted-foreground shrink-0" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">Set up your profile</div>
+                  <div className="text-xs text-muted-foreground">
+                    Name, company, email signature, and market focus
+                  </div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </Link>
+              <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                <Mic className="h-5 w-5 text-muted-foreground shrink-0" />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">Try a voice memo</div>
+                  <div className="text-xs text-muted-foreground">
+                    Tap the mic button in the bottom-right after your next call
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       {/* Metrics tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

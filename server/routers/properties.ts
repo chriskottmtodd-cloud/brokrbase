@@ -80,6 +80,9 @@ export const propertiesRouter = router({
         askingPrice: z.number().optional(),
         capRate: z.number().optional(),
         noi: z.number().optional(),
+        primaryTenant: z.string().optional(),
+        leaseType: z.string().optional(),
+        leaseExpiration: z.date().optional(),
         status: STATUS_ENUM.optional(),
         ownerId: z.number().optional(),
         ownerName: z.string().optional(),
@@ -118,6 +121,9 @@ export const propertiesRouter = router({
           askingPrice: z.number().nullable().optional(),
           capRate: z.number().nullable().optional(),
           noi: z.number().nullable().optional(),
+          primaryTenant: z.string().nullable().optional(),
+          leaseType: z.string().nullable().optional(),
+          leaseExpiration: z.date().nullable().optional(),
           status: STATUS_ENUM.optional(),
           ownerId: z.number().nullable().optional(),
           ownerName: z.string().nullable().optional(),
@@ -160,5 +166,71 @@ export const propertiesRouter = router({
     .query(async ({ ctx, input }) => {
       const id = await findDuplicateProperty(ctx.user.id, input.name, input.address);
       return { duplicateId: id };
+    }),
+
+  bulkImport: protectedProcedure
+    .input(
+      z.object({
+        rows: z.array(
+          z.object({
+            name: z.string().min(1),
+            propertyType: PROPERTY_TYPE_ENUM.default("other"),
+            address: z.string().optional(),
+            city: z.string().optional(),
+            state: z.string().optional(),
+            zip: z.string().optional(),
+            county: z.string().optional(),
+            unitCount: z.number().optional(),
+            vintageYear: z.number().optional(),
+            estimatedValue: z.number().optional(),
+            status: STATUS_ENUM.default("researching"),
+            ownerName: z.string().optional(),
+            ownerPhone: z.string().optional(),
+            ownerEmail: z.string().optional(),
+            latitude: z.number().optional(),
+            longitude: z.number().optional(),
+            notes: z.string().optional(),
+          })
+        ),
+        skipDuplicates: z.boolean().default(true),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const results: Array<{
+        index: number;
+        name: string;
+        status: "ok" | "error" | "skipped_duplicate";
+        error?: string;
+      }> = [];
+      let inserted = 0;
+
+      for (let index = 0; index < input.rows.length; index++) {
+        const row = input.rows[index];
+        try {
+          if (input.skipDuplicates) {
+            const dupId = await findDuplicateProperty(
+              ctx.user.id,
+              row.name,
+              row.address
+            );
+            if (dupId) {
+              results.push({ index, name: row.name, status: "skipped_duplicate" });
+              continue;
+            }
+          }
+          await createProperty({ ...row, userId: ctx.user.id });
+          inserted++;
+          results.push({ index, name: row.name, status: "ok" });
+        } catch (err) {
+          results.push({ index, name: row.name, status: "error", error: String(err) });
+        }
+      }
+      return {
+        total: input.rows.length,
+        inserted,
+        skipped: results.filter((r) => r.status === "skipped_duplicate").length,
+        failed: results.filter((r) => r.status === "error").length,
+        results,
+      };
     }),
 });

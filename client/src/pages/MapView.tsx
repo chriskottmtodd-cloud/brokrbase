@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -83,12 +84,22 @@ interface MapProperty {
   address: string | null;
   city: string | null;
   state: string | null;
+  zip: string | null;
   latitude: number | null;
   longitude: number | null;
   boundary: string | null;
   unitCount: number | null;
+  vintageYear: number | null;
+  sizeSqft: number | null;
+  lotAcres: number | null;
+  estimatedValue: number | null;
   askingPrice: number | null;
   capRate: number | null;
+  noi: number | null;
+  primaryTenant: string | null;
+  leaseType: string | null;
+  leaseExpiration: Date | string | null;
+  notes: string | null;
   ownerName: string | null;
   ownerCompany: string | null;
   ownerPhone: string | null;
@@ -133,6 +144,9 @@ export default function MapView() {
 
   // Edit-boundary mode for an existing property
   const [editingPropertyId, setEditingPropertyId] = useState<number | null>(null);
+  // Draw-boundary mode for an existing property that has no boundary yet
+  const [drawingForPropertyId, setDrawingForPropertyId] = useState<number | null>(null);
+  const drawingForPropertyIdRef = useRef<number | null>(null);
   const propertiesQuery = trpc.properties.forMap.useQuery();
   const utils = trpc.useUtils();
   const createProperty = trpc.properties.create.useMutation();
@@ -162,21 +176,52 @@ export default function MapView() {
       .then((maps) => {
         if (cancelled || !containerRef.current) return;
 
-        // Default center: geographic center of US (will be replaced by geolocation if available)
-        const defaultCenter = { lat: 39.8283, lng: -98.5795 };
+        // Check URL params for a specific location to center on
+        const params = new URLSearchParams(window.location.search);
+        const paramLat = parseFloat(params.get("lat") ?? "");
+        const paramLng = parseFloat(params.get("lng") ?? "");
+        const paramZoom = parseInt(params.get("zoom") ?? "");
+        const hasUrlCenter = !isNaN(paramLat) && !isNaN(paramLng);
+
+        // Restore last map position from session
+        const saved = sessionStorage.getItem("brokrbase-map-pos");
+        const savedPos = saved ? JSON.parse(saved) : null;
+        const hasSaved = savedPos && !isNaN(savedPos.lat) && !isNaN(savedPos.lng);
+
+        const defaultCenter = hasUrlCenter
+          ? { lat: paramLat, lng: paramLng }
+          : hasSaved
+            ? { lat: savedPos.lat, lng: savedPos.lng }
+            : { lat: 43.615, lng: -116.2023 }; // Boise, ID
+        const defaultZoom = hasUrlCenter ? (paramZoom || 16) : hasSaved ? savedPos.zoom : 14;
+
         const map = new maps.Map(containerRef.current, {
           center: defaultCenter,
-          zoom: 11,
+          zoom: defaultZoom,
           mapTypeControl: true,
           streetViewControl: false,
           fullscreenControl: false,
           gestureHandling: "greedy", // single-finger pan on mobile
           mapTypeId: maps.MapTypeId.HYBRID,
+          tilt: 0,
+          rotateControl: false,
         });
         mapRef.current = map;
 
-        // Center on user's location if they grant permission
-        if (navigator.geolocation) {
+        // Save position whenever map moves
+        map.addListener("idle", () => {
+          const c = map.getCenter();
+          if (c) {
+            sessionStorage.setItem("brokrbase-map-pos", JSON.stringify({
+              lat: c.lat(),
+              lng: c.lng(),
+              zoom: map.getZoom(),
+            }));
+          }
+        });
+
+        // Center on user's location if they grant permission (skip if URL had coords or saved position)
+        if (!hasUrlCenter && !hasSaved && navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
@@ -223,11 +268,41 @@ export default function MapView() {
             }
             const centroid = { lat: latSum / len, lng: lngSum / len };
 
+            // Stop drawing mode after each polygon
+            drawingManager.setDrawingMode(null);
+
+            // If drawing for an existing property, save boundary directly
+            const existingId = drawingForPropertyIdRef.current;
+            if (existingId) {
+              const pathArr = polygon.getPath();
+              const ring: number[][] = [];
+              for (let i = 0; i < pathArr.getLength(); i++) {
+                const pt = pathArr.getAt(i);
+                ring.push([pt.lng(), pt.lat()]);
+              }
+              if (ring.length > 0) ring.push(ring[0]);
+              const geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
+
+              polygon.setMap(null);
+              drawingForPropertyIdRef.current = null;
+              setDrawingForPropertyId(null);
+
+              // Save via mutation
+              updateProperty.mutateAsync({
+                id: existingId,
+                data: { boundary: geojson, latitude: centroid.lat, longitude: centroid.lng },
+              }).then(() => {
+                toast.success("Boundary saved");
+                utils.properties.forMap.invalidate();
+              }).catch(() => {
+                toast.error("Failed to save boundary");
+              });
+              return;
+            }
+
             setPendingPolygon(polygon);
             setPendingCenter(centroid);
             setShowNameModal(true);
-            // Stop drawing mode after each polygon
-            drawingManager.setDrawingMode(null);
 
             // Reverse-geocode centroid to auto-fill address fields
             setGeocoding(true);
@@ -387,14 +462,28 @@ export default function MapView() {
   };
 
   const recenterOnMe = () => {
-    if (!navigator.geolocation || !mapRef.current) return;
+    if (!mapRef.current) return;
+    if (!navigator.geolocation) {
+      toast.error("Geolocation not supported by your browser");
+      return;
+    }
+    toast.info("Getting your location...");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         mapRef.current?.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        mapRef.current?.setZoom(15);
+        mapRef.current?.setZoom(18);
+        toast.dismiss();
       },
-      () => toast.error("Couldn't get your location"),
-      { timeout: 5000 },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          toast.error("Location access denied. Allow location in your browser settings.");
+        } else if (err.code === err.TIMEOUT) {
+          toast.error("Location request timed out. Try again.");
+        } else {
+          toast.error("Couldn't get your location");
+        }
+      },
+      { timeout: 10000, enableHighAccuracy: true },
     );
   };
 
@@ -560,8 +649,8 @@ export default function MapView() {
       )}
 
       {/* Top controls — drawing + recenter */}
-      <div className="absolute top-4 left-4 z-10 flex gap-2">
-        {!editingPropertyId && (
+      <div className="absolute top-14 left-4 z-10 flex gap-2">
+        {!editingPropertyId && !drawingForPropertyId && (
           <Button
             onClick={startDrawing}
             disabled={!mapsReady}
@@ -569,6 +658,20 @@ export default function MapView() {
             size="sm"
           >
             <Plus className="h-4 w-4" /> Draw New Property
+          </Button>
+        )}
+        {drawingForPropertyId && (
+          <Button
+            onClick={() => {
+              if (drawingManagerRef.current) drawingManagerRef.current.setDrawingMode(null);
+              drawingForPropertyIdRef.current = null;
+              setDrawingForPropertyId(null);
+            }}
+            variant="outline"
+            className="shadow-lg bg-white"
+            size="sm"
+          >
+            Cancel Drawing
           </Button>
         )}
         {editingPropertyId && (
@@ -624,7 +727,17 @@ export default function MapView() {
           onClose={() => setSelectedProperty(null)}
           onEditFull={() => setLocation(`/properties/${selectedProperty.id}`)}
           onEditBoundary={() => {
-            startEditBoundary(selectedProperty.id);
+            if (selectedProperty.boundary) {
+              startEditBoundary(selectedProperty.id);
+            } else {
+              // No boundary yet — start drawing mode for this property
+              drawingForPropertyIdRef.current = selectedProperty.id;
+              setDrawingForPropertyId(selectedProperty.id);
+              if (drawingManagerRef.current && window.google?.maps) {
+                drawingManagerRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
+              }
+              toast.info("Tap points around the property. Tap the first point again to close.");
+            }
             setSelectedProperty(null);
           }}
           onRemoveBoundary={handleRemoveBoundaryOnly}
@@ -743,8 +856,20 @@ function PropertyCard({
   hasBoundary: boolean;
   prefs: UserPreferences;
 }) {
-  const fullAddress = [property.address, property.city, property.state].filter(Boolean).join(", ");
+  const fullAddress = [property.address, property.city, property.state, property.zip].filter(Boolean).join(", ");
   const typeColor = getTypeColor(prefs, property.propertyType);
+
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState(property.notes ?? "");
+  const utils = trpc.useUtils();
+  const updateNotes = trpc.properties.update.useMutation({
+    onSuccess: () => {
+      toast.success("Notes saved");
+      setEditingNotes(false);
+      utils.properties.forMap.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   return (
     <div
@@ -785,31 +910,142 @@ function PropertyCard({
           </div>
         )}
 
-        {/* Property details */}
-        {(property.unitCount || property.askingPrice || property.capRate) && (
+        {/* Property details — show whatever is filled in */}
+        {(property.unitCount || property.vintageYear || property.sizeSqft || property.lotAcres || property.estimatedValue || property.askingPrice || property.capRate || property.noi) && (
           <div className="grid grid-cols-2 gap-2 text-xs border-y py-2">
-            {property.unitCount && (
+            {property.unitCount != null && (
               <div>
                 <div className="text-muted-foreground">Units</div>
                 <div className="font-medium">{property.unitCount}</div>
               </div>
             )}
-            {property.askingPrice && (
+            {property.vintageYear != null && (
               <div>
-                <div className="text-muted-foreground">Asking</div>
-                <div className="font-medium">
-                  ${(property.askingPrice / 1000000).toFixed(2)}M
-                </div>
+                <div className="text-muted-foreground">Year Built</div>
+                <div className="font-medium">{property.vintageYear}</div>
               </div>
             )}
-            {property.capRate && (
+            {property.sizeSqft != null && (
               <div>
-                <div className="text-muted-foreground">Cap</div>
+                <div className="text-muted-foreground">Size</div>
+                <div className="font-medium">{property.sizeSqft.toLocaleString()} sqft</div>
+              </div>
+            )}
+            {property.lotAcres != null && (
+              <div>
+                <div className="text-muted-foreground">Lot</div>
+                <div className="font-medium">{property.lotAcres} acres</div>
+              </div>
+            )}
+            {property.estimatedValue != null && (
+              <div>
+                <div className="text-muted-foreground">Est. Value</div>
+                <div className="font-medium">${property.estimatedValue >= 1000000 ? (property.estimatedValue / 1000000).toFixed(2) + "M" : property.estimatedValue.toLocaleString()}</div>
+              </div>
+            )}
+            {property.askingPrice != null && (
+              <div>
+                <div className="text-muted-foreground">Asking</div>
+                <div className="font-medium">${property.askingPrice >= 1000000 ? (property.askingPrice / 1000000).toFixed(2) + "M" : property.askingPrice.toLocaleString()}</div>
+              </div>
+            )}
+            {property.capRate != null && (
+              <div>
+                <div className="text-muted-foreground">Cap Rate</div>
                 <div className="font-medium">{property.capRate}%</div>
+              </div>
+            )}
+            {property.noi != null && (
+              <div>
+                <div className="text-muted-foreground">NOI</div>
+                <div className="font-medium">${property.noi.toLocaleString()}</div>
               </div>
             )}
           </div>
         )}
+
+        {/* Lease fields for office/retail/industrial */}
+        {["office", "retail", "industrial"].includes(property.propertyType) &&
+          (property.primaryTenant || property.leaseType || property.leaseExpiration) && (
+          <div className="grid grid-cols-2 gap-2 text-xs border-y py-2">
+            {property.primaryTenant && (
+              <div className="col-span-2">
+                <div className="text-muted-foreground">Tenant</div>
+                <div className="font-medium">{property.primaryTenant}</div>
+              </div>
+            )}
+            {property.leaseType && (
+              <div>
+                <div className="text-muted-foreground">Lease Type</div>
+                <div className="font-medium">{property.leaseType}</div>
+              </div>
+            )}
+            {property.leaseExpiration && (
+              <div>
+                <div className="text-muted-foreground">Lease Exp.</div>
+                <div className="font-medium">{new Date(property.leaseExpiration).toLocaleDateString()}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Notes — editable */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notes</div>
+            {!editingNotes && (
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setNotesText(property.notes ?? "");
+                  setEditingNotes(true);
+                }}
+              >
+                {property.notes ? "Edit" : "+ Add note"}
+              </button>
+            )}
+          </div>
+          {editingNotes ? (
+            <div className="space-y-1.5">
+              <Textarea
+                rows={4}
+                value={notesText}
+                onChange={(e) => setNotesText(e.target.value)}
+                className="text-xs"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={updateNotes.isPending}
+                  onClick={() =>
+                    updateNotes.mutate({
+                      id: property.id,
+                      data: { notes: notesText || null },
+                    })
+                  }
+                >
+                  {updateNotes.isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => setEditingNotes(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : property.notes ? (
+            <div className="border rounded-md p-2 text-xs whitespace-pre-wrap bg-muted/20">
+              {property.notes}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">No notes yet</p>
+          )}
+        </div>
 
         {/* Owner */}
         {(property.ownerName || property.ownerCompany) && (

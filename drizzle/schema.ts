@@ -148,6 +148,10 @@ export const properties = mysqlTable("properties", {
   askingPrice: float("askingPrice"),
   capRate: float("capRate"),
   noi: float("noi"),
+  // Lease fields (office, retail, industrial)
+  primaryTenant: varchar("primaryTenant", { length: 200 }),
+  leaseType: varchar("leaseType", { length: 50 }),
+  leaseExpiration: timestamp("leaseExpiration"),
   status: mysqlEnum("status", [
     "researching",
     "prospecting",

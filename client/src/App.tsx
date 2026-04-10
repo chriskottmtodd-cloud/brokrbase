@@ -17,6 +17,7 @@ import ActivityLog from "./pages/ActivityLog";
 import EmailStudio from "./pages/email-studio";
 import MapView from "./pages/MapView";
 import Settings from "./pages/Settings";
+import Import from "./pages/Import";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
         <Route path="/activities" component={ActivityLog} />
         <Route path="/email-studio" component={EmailStudio} />
         <Route path="/map" component={MapView} />
+        <Route path="/import" component={Import} />
         <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

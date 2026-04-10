@@ -38,6 +38,7 @@ import {
   ArrowLeft,
   Building2,
   Calendar,
+  Check,
   DollarSign,
   Edit2,
   Loader2,
@@ -45,8 +46,10 @@ import {
   MapPin,
   Phone,
   Plus,
+  Save,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { ActivityDetailModal } from "@/components/ActivityDetailModal";
 import { ALL_PROPERTY_TYPES, getEnabledTypes, getTypeColor, parsePreferences } from "./Settings";
@@ -77,6 +80,14 @@ export default function PropertyDetail() {
   const [showEdit, setShowEdit] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [openActivityId, setOpenActivityId] = useState<number | null>(null);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesText, setNotesText] = useState("");
+  const [showAddActivity, setShowAddActivity] = useState(false);
+  const [newActivity, setNewActivity] = useState({ type: "call" as string, subject: "", notes: "" });
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editTaskForm, setEditTaskForm] = useState({ title: "", dueAt: "" });
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const prefs = parsePreferences(profileQuery.data?.preferences ?? "");
@@ -105,7 +116,57 @@ export default function PropertyDetail() {
   const deleteProperty = trpc.properties.delete.useMutation({
     onSuccess: () => {
       toast.success("Property deleted");
+      utils.properties.list.invalidate();
+      utils.dashboard.metrics.invalidate();
       setLocation("/properties");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateNotes = trpc.properties.update.useMutation({
+    onSuccess: () => {
+      toast.success("Notes saved");
+      setEditingNotes(false);
+      utils.properties.byId.invalidate({ id: propertyId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createTask = trpc.tasks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Task created");
+      setShowAddTask(false);
+      setNewTask({ title: "", dueAt: "" });
+      utils.tasks.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updateTask = trpc.tasks.update.useMutation({
+    onSuccess: () => {
+      toast.success("Task updated");
+      setEditingTaskId(null);
+      utils.tasks.list.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const completeTask = trpc.tasks.update.useMutation({
+    onSuccess: () => {
+      toast.success("Task completed");
+      utils.tasks.list.invalidate();
+      utils.dashboard.metrics.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createActivity = trpc.activities.create.useMutation({
+    onSuccess: () => {
+      toast.success("Activity logged");
+      setShowAddActivity(false);
+      setNewActivity({ type: "call", subject: "", notes: "" });
+      refetchActivities();
+      utils.dashboard.metrics.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -168,6 +229,22 @@ export default function PropertyDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {(property.latitude || property.address) && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => {
+                if (property.latitude && property.longitude) {
+                  setLocation(`/map?lat=${property.latitude}&lng=${property.longitude}&zoom=16`);
+                } else {
+                  setLocation(`/map?search=${encodeURIComponent(fullAddress)}`);
+                }
+              }}
+            >
+              <MapPin className="h-3.5 w-3.5" /> View on Map
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setShowEdit(true)} className="gap-1">
             <Edit2 className="h-3.5 w-3.5" /> Edit
           </Button>
@@ -193,65 +270,212 @@ export default function PropertyDetail() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <Detail label="Vintage Year" value={property.vintageYear?.toString()} />
-                <Detail label="Year Renovated" value={property.yearRenovated?.toString()} />
-                <Detail label="Size (sqft)" value={property.sizeSqft?.toLocaleString()} />
-                <Detail label="Lot (acres)" value={property.lotAcres?.toString()} />
-                <Detail
-                  label="Asking Price"
-                  value={property.askingPrice ? `$${property.askingPrice.toLocaleString()}` : undefined}
+                <InlineEditField
+                  label="Year Built"
+                  value={property.vintageYear}
+                  type="number"
+                  propertyId={propertyId}
+                  fieldKey="vintageYear"
                 />
-                <Detail
-                  label="Cap Rate"
-                  value={property.capRate ? `${property.capRate}%` : undefined}
+                <InlineEditField
+                  label="Lot Size (acres)"
+                  value={property.lotAcres}
+                  type="number"
+                  propertyId={propertyId}
+                  fieldKey="lotAcres"
                 />
-                <Detail
-                  label="NOI"
-                  value={property.noi ? `$${property.noi.toLocaleString()}` : undefined}
+                <InlineEditField
+                  label="Building Size (sqft)"
+                  value={property.sizeSqft}
+                  type="number"
+                  format={(v) => v ? Number(v).toLocaleString() : undefined}
+                  propertyId={propertyId}
+                  fieldKey="sizeSqft"
                 />
-                <Detail
-                  label="Last Sale"
-                  value={
-                    property.lastSalePrice
-                      ? `$${property.lastSalePrice.toLocaleString()}${property.lastSaleDate ? ` (${new Date(property.lastSaleDate).getFullYear()})` : ""}`
-                      : undefined
-                  }
-                />
+                {["apartment", "mhc", "affordable_housing", "self_storage"].includes(property.propertyType) && (
+                  <InlineEditField
+                    label="Units"
+                    value={property.unitCount}
+                    type="number"
+                    propertyId={propertyId}
+                    fieldKey="unitCount"
+                  />
+                )}
+                {["office", "retail", "industrial"].includes(property.propertyType) && (
+                  <>
+                    <InlineEditField
+                      label="Primary Tenant"
+                      value={(property as any).primaryTenant}
+                      type="text"
+                      propertyId={propertyId}
+                      fieldKey="primaryTenant"
+                    />
+                    <InlineEditField
+                      label="Lease Type"
+                      value={(property as any).leaseType}
+                      type="text"
+                      placeholder="NNN, Gross, Modified Gross..."
+                      propertyId={propertyId}
+                      fieldKey="leaseType"
+                    />
+                    <InlineEditField
+                      label="Lease Expiration"
+                      value={(property as any).leaseExpiration}
+                      type="date"
+                      propertyId={propertyId}
+                      fieldKey="leaseExpiration"
+                    />
+                  </>
+                )}
               </div>
-              {property.notes && (
-                <div className="pt-3 border-t">
-                  <div className="text-xs text-muted-foreground mb-1">Notes</div>
-                  <p className="text-sm whitespace-pre-wrap">{property.notes}</p>
+              <div className="pt-3 border-t">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs text-muted-foreground">Notes</div>
+                  {!editingNotes && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs gap-1"
+                      onClick={() => {
+                        setNotesText(property.notes ?? "");
+                        setEditingNotes(true);
+                      }}
+                    >
+                      <Edit2 className="h-3 w-3" />
+                      {property.notes ? "Edit" : "Add note"}
+                    </Button>
+                  )}
                 </div>
-              )}
+                {editingNotes ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      rows={4}
+                      value={notesText}
+                      onChange={(e) => setNotesText(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="gap-1"
+                        disabled={updateNotes.isPending}
+                        onClick={() =>
+                          updateNotes.mutate({
+                            id: propertyId,
+                            data: { notes: notesText || null },
+                          })
+                        }
+                      >
+                        <Save className="h-3 w-3" />
+                        {updateNotes.isPending ? "Saving..." : "Save"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingNotes(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : property.notes ? (
+                  <p className="text-sm whitespace-pre-wrap">{property.notes}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No notes yet</p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
           {/* Activity Timeline */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Activity className="h-3.5 w-3.5" />
-                Activity History
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Activity className="h-3.5 w-3.5" />
+                  Activity History
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddActivity(true)}
+                >
+                  <Plus className="h-3 w-3" /> Log Activity
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!activities?.length ? (
+              {showAddActivity && (
+                <div className="space-y-2 p-3 border rounded-md bg-muted/30 mb-4">
+                  <div className="flex gap-2">
+                    <Select
+                      value={newActivity.type}
+                      onValueChange={(v) => setNewActivity({ ...newActivity, type: v })}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="call">Call</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
+                        <SelectItem value="meeting">Meeting</SelectItem>
+                        <SelectItem value="note">Note</SelectItem>
+                        <SelectItem value="text">Text</SelectItem>
+                        <SelectItem value="voicemail">Voicemail</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Subject..."
+                      value={newActivity.subject}
+                      onChange={(e) => setNewActivity({ ...newActivity, subject: e.target.value })}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <Textarea
+                    rows={3}
+                    placeholder="Notes..."
+                    value={newActivity.notes}
+                    onChange={(e) => setNewActivity({ ...newActivity, notes: e.target.value })}
+                    className="text-xs"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={createActivity.isPending}
+                      onClick={() =>
+                        createActivity.mutate({
+                          type: newActivity.type as "call" | "email" | "meeting" | "note" | "text" | "voicemail",
+                          propertyId,
+                          subject: newActivity.subject || undefined,
+                          notes: newActivity.notes || undefined,
+                        })
+                      }
+                    >
+                      {createActivity.isPending ? "Saving..." : "Log"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddActivity(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!activities?.length && !showAddActivity ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Activity className="h-8 w-8 mx-auto mb-2 opacity-20" />
                   <p className="text-sm">No activities logged yet</p>
-                  <p className="text-xs mt-1">Use the mic button to log a call or meeting.</p>
+                  <p className="text-xs mt-1">Use the mic button or click "Log Activity" above.</p>
                 </div>
               ) : (
                 <div className="space-y-0">
-                  {activities.map((activity, idx) => (
+                  {activities?.map((activity, idx) => (
                     <button
                       key={activity.id}
                       type="button"
                       onClick={() => setOpenActivityId(activity.id)}
                       className="w-full text-left flex gap-3 pb-4 relative hover:bg-muted/40 rounded-md -mx-2 px-2 py-1 transition-colors"
                     >
-                      {idx < activities.length - 1 && (
+                      {idx < (activities?.length ?? 0) - 1 && (
                         <div className="absolute left-6 top-9 bottom-0 w-px bg-border" />
                       )}
                       <div className="shrink-0 h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary z-10">
@@ -328,26 +552,126 @@ export default function PropertyDetail() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Calendar className="h-3.5 w-3.5" />
-                Open Tasks
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Open Tasks
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowAddTask(true)}
+                >
+                  <Plus className="h-3 w-3" /> Add
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!tasks?.length ? (
+              {showAddTask && (
+                <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
+                  <Input
+                    placeholder="Task title..."
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                    autoFocus
+                  />
+                  <Input
+                    type="date"
+                    value={newTask.dueAt}
+                    onChange={(e) => setNewTask({ ...newTask, dueAt: e.target.value })}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!newTask.title || createTask.isPending}
+                      onClick={() =>
+                        createTask.mutate({
+                          title: newTask.title,
+                          propertyId,
+                          type: "follow_up",
+                          priority: "medium",
+                          dueAt: newTask.dueAt ? new Date(newTask.dueAt) : undefined,
+                        })
+                      }
+                    >
+                      {createTask.isPending ? "Creating..." : "Create"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddTask(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!tasks?.length && !showAddTask ? (
                 <p className="text-sm text-muted-foreground italic">No open tasks</p>
               ) : (
                 <div className="space-y-2">
-                  {tasks.map((t) => (
-                    <div key={t.id} className="border rounded-md p-2">
-                      <div className="text-sm font-medium">{t.title}</div>
-                      {t.dueAt && (
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          Due {formatDistanceToNow(new Date(t.dueAt), { addSuffix: true })}
+                  {tasks?.map((t) =>
+                    editingTaskId === t.id ? (
+                      <div key={t.id} className="space-y-2 p-2 border rounded-md bg-muted/30">
+                        <Input
+                          value={editTaskForm.title}
+                          onChange={(e) => setEditTaskForm({ ...editTaskForm, title: e.target.value })}
+                          autoFocus
+                        />
+                        <Input
+                          type="date"
+                          value={editTaskForm.dueAt}
+                          onChange={(e) => setEditTaskForm({ ...editTaskForm, dueAt: e.target.value })}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            disabled={updateTask.isPending}
+                            onClick={() =>
+                              updateTask.mutate({
+                                id: t.id,
+                                title: editTaskForm.title,
+                                dueAt: editTaskForm.dueAt ? new Date(editTaskForm.dueAt) : undefined,
+                              })
+                            }
+                          >
+                            Save
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingTaskId(null)}>
+                            Cancel
+                          </Button>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ) : (
+                      <div key={t.id} className="border rounded-md p-2 flex items-start gap-2">
+                        <button
+                          onClick={() =>
+                            completeTask.mutate({ id: t.id, status: "completed" })
+                          }
+                          className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
+                          title="Complete task"
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
+                        <button
+                          className="flex-1 text-left min-w-0"
+                          onClick={() => {
+                            setEditingTaskId(t.id);
+                            setEditTaskForm({
+                              title: t.title,
+                              dueAt: t.dueAt
+                                ? new Date(t.dueAt).toISOString().split("T")[0]
+                                : "",
+                            });
+                          }}
+                        >
+                          <div className="text-sm font-medium">{t.title}</div>
+                          {t.dueAt && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              Due {formatDistanceToNow(new Date(t.dueAt), { addSuffix: true })}
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
             </CardContent>
@@ -398,11 +722,94 @@ export default function PropertyDetail() {
   );
 }
 
-function Detail({ label, value }: { label: string; value?: string }) {
+function InlineEditField({
+  label,
+  value,
+  type,
+  format,
+  placeholder,
+  propertyId,
+  fieldKey,
+}: {
+  label: string;
+  value: string | number | Date | null | undefined;
+  type: "text" | "number" | "date";
+  format?: (v: unknown) => string | undefined;
+  placeholder?: string;
+  propertyId: number;
+  fieldKey: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [inputVal, setInputVal] = useState("");
+  const utils = trpc.useUtils();
+  const update = trpc.properties.update.useMutation({
+    onSuccess: () => {
+      setEditing(false);
+      utils.properties.byId.invalidate({ id: propertyId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const displayValue = format
+    ? format(value)
+    : type === "date" && value
+      ? new Date(value as string | Date).toLocaleDateString()
+      : value != null
+        ? String(value)
+        : undefined;
+
+  const startEdit = () => {
+    if (type === "date" && value) {
+      setInputVal(new Date(value as string | Date).toISOString().split("T")[0]);
+    } else {
+      setInputVal(value != null ? String(value) : "");
+    }
+    setEditing(true);
+  };
+
+  const save = () => {
+    let parsed: unknown;
+    if (!inputVal && inputVal !== "0") {
+      parsed = null;
+    } else if (type === "number") {
+      parsed = parseFloat(inputVal) || null;
+    } else if (type === "date") {
+      parsed = new Date(inputVal);
+    } else {
+      parsed = inputVal;
+    }
+    update.mutate({ id: propertyId, data: { [fieldKey]: parsed } as any });
+  };
+
+  if (editing) {
+    return (
+      <div>
+        <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
+        <Input
+          type={type === "number" ? "number" : type === "date" ? "date" : "text"}
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          placeholder={placeholder}
+          className="h-7 text-sm"
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          onBlur={save}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div
+      className="cursor-pointer hover:bg-muted/40 rounded px-1 -mx-1 py-0.5 transition-colors"
+      onClick={startEdit}
+      title="Click to edit"
+    >
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm">{value || "—"}</div>
+      <div className="text-sm">{displayValue || <span className="text-muted-foreground">—</span>}</div>
     </div>
   );
 }

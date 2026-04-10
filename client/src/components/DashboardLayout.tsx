@@ -37,6 +37,7 @@ import {
   Mail,
   Map as MapIcon,
   PanelLeft,
+  Upload,
   Settings as SettingsIcon,
   Users,
 } from "lucide-react";
@@ -54,6 +55,7 @@ const menuItems = [
   { icon: ListChecks, label: "Tasks", path: "/tasks" },
   { icon: Activity, label: "Activity Log", path: "/activities" },
   { icon: Mail, label: "Email Studio", path: "/email-studio" },
+  { icon: Upload, label: "Import Data", path: "/import" },
   { icon: SettingsIcon, label: "Settings", path: "/settings" },
 ];
 
