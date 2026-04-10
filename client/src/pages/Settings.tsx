@@ -232,7 +232,7 @@ export default function Settings() {
                   rows={3}
                   value={form.marketFocus}
                   onChange={(e) => setForm({ ...form, marketFocus: e.target.value })}
-                  placeholder="e.g. multifamily and MHC investment sales across Idaho and Montana, deals 50–500 units"
+                  placeholder="e.g. office and industrial brokerage in the Denver metro, $2M–$25M deals"
                 />
               </Field>
             </CardContent>

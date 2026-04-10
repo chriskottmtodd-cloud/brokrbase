@@ -107,23 +107,6 @@ export default function MapView() {
   const [mapsError, setMapsError] = useState<string | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<MapProperty | null>(null);
 
-  // After-draw "Name this property" modal state
-  const [pendingPolygon, setPendingPolygon] = useState<google.maps.Polygon | null>(null);
-  const [pendingCenter, setPendingCenter] = useState<{ lat: number; lng: number } | null>(null);
-  const [showNameModal, setShowNameModal] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
-  const [newPropertyForm, setNewPropertyForm] = useState({
-    name: "",
-    propertyType: "apartment",
-    address: "",
-    city: "",
-    state: "",
-    zip: "",
-  });
-
-  // Edit-boundary mode for an existing property
-  const [editingPropertyId, setEditingPropertyId] = useState<number | null>(null);
-
   // ─── Data ─────────────────────────────────────────────────────────────────
   const configQuery = trpc.properties.mapsConfig.useQuery();
   const profileQuery = trpc.users.getMyProfile.useQuery();
@@ -132,6 +115,24 @@ export default function MapView() {
   const enabledPropertyTypeOptions = ALL_PROPERTY_TYPES.filter((t) =>
     enabledTypes.includes(t.value),
   );
+  const firstEnabledType = enabledPropertyTypeOptions[0]?.value ?? "apartment";
+
+  // After-draw "Name this property" modal state
+  const [pendingPolygon, setPendingPolygon] = useState<google.maps.Polygon | null>(null);
+  const [pendingCenter, setPendingCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
+  const [newPropertyForm, setNewPropertyForm] = useState({
+    name: "",
+    propertyType: firstEnabledType as string,
+    address: "",
+    city: "",
+    state: "",
+    zip: "",
+  });
+
+  // Edit-boundary mode for an existing property
+  const [editingPropertyId, setEditingPropertyId] = useState<number | null>(null);
   const propertiesQuery = trpc.properties.forMap.useQuery();
   const utils = trpc.useUtils();
   const createProperty = trpc.properties.create.useMutation();
@@ -161,8 +162,8 @@ export default function MapView() {
       .then((maps) => {
         if (cancelled || !containerRef.current) return;
 
-        // Default center: Boise (will be replaced by geolocation if available)
-        const defaultCenter = { lat: 43.615, lng: -116.2023 };
+        // Default center: geographic center of US (will be replaced by geolocation if available)
+        const defaultCenter = { lat: 39.8283, lng: -98.5795 };
         const map = new maps.Map(containerRef.current, {
           center: defaultCenter,
           zoom: 11,
@@ -382,7 +383,7 @@ export default function MapView() {
     }
     setPendingCenter(null);
     setShowNameModal(false);
-    setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "", state: "", zip: "" });
+    setNewPropertyForm({ name: "", propertyType: firstEnabledType, address: "", city: "", state: "", zip: "" });
   };
 
   const recenterOnMe = () => {
@@ -437,7 +438,7 @@ export default function MapView() {
       setPendingPolygon(null);
       setPendingCenter(null);
       setShowNameModal(false);
-      setNewPropertyForm({ name: "", propertyType: "apartment", address: "", city: "", state: "", zip: "" });
+      setNewPropertyForm({ name: "", propertyType: firstEnabledType, address: "", city: "", state: "", zip: "" });
       utils.properties.forMap.invalidate();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save property");
@@ -683,7 +684,7 @@ export default function MapView() {
                 <Input
                   value={newPropertyForm.city}
                   onChange={(e) => setNewPropertyForm({ ...newPropertyForm, city: e.target.value })}
-                  placeholder="Boise"
+                  placeholder="City"
                 />
               </div>
               <div>
@@ -691,7 +692,7 @@ export default function MapView() {
                 <Input
                   value={newPropertyForm.state}
                   onChange={(e) => setNewPropertyForm({ ...newPropertyForm, state: e.target.value })}
-                  placeholder="ID"
+                  placeholder="ST"
                 />
               </div>
               <div>
@@ -699,7 +700,7 @@ export default function MapView() {
                 <Input
                   value={newPropertyForm.zip}
                   onChange={(e) => setNewPropertyForm({ ...newPropertyForm, zip: e.target.value })}
-                  placeholder="83702"
+                  placeholder="Zip"
                 />
               </div>
             </div>

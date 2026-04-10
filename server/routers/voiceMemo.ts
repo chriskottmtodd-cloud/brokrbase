@@ -8,7 +8,7 @@ import {
   resolvePropertyMention,
   type ResolvedEntity,
 } from "../_core/entityResolution";
-import { createActivity, getContacts, getProperties } from "../db";
+import { createActivity, getContacts, getProperties, getUserById } from "../db";
 import { parseLlmJson } from "../lib/parseLlmJson";
 
 // ─── LLM extraction schema (names, not IDs) ─────────────────────────────
@@ -165,12 +165,16 @@ function buildWhisperPrompt(
   propertyNames: string[],
   contactNames: string[],
   companyNames: string[],
+  marketFocus?: string,
 ): string {
   const lines = [
-    "Commercial real estate investment sales. Multifamily, NNN, retail, industrial.",
+    "Commercial real estate investment sales. Multifamily, NNN, retail, industrial, office, self-storage.",
     "Cap rates, NOI, T12, rent rolls, 1031 exchange, price per unit, GRM.",
-    "Idaho: Boise, Meridian, Nampa, Twin Falls, Idaho Falls, Pocatello.",
   ];
+  // Use the broker's market focus to prime geography recognition
+  if (marketFocus) {
+    lines.push(`Broker focus: ${marketFocus}`);
+  }
   if (propertyNames.length) lines.push(`Properties: ${propertyNames.slice(0, 80).join(", ")}.`);
   if (contactNames.length) lines.push(`People: ${contactNames.slice(0, 50).join(", ")}.`);
   if (companyNames.length) lines.push(`Companies: ${companyNames.slice(0, 30).join(", ")}.`);
@@ -192,10 +196,11 @@ export const voiceMemoRouter = router({
       // 1. Decode audio
       const audioBuffer = Buffer.from(input.audioBase64, "base64");
 
-      // 2. Build dynamic transcription prompt from user's DB
-      const [recentProps, recentContacts] = await Promise.all([
+      // 2. Build dynamic transcription prompt from user's DB + profile
+      const [recentProps, recentContacts, userProfile] = await Promise.all([
         getProperties(userId, { limit: 200 }),
         getContacts(userId, { limit: 200 }),
+        getUserById(userId),
       ]);
       const propertyNames = recentProps.map((p) => p.name).filter((n): n is string => !!n);
       const contactNames = recentContacts
@@ -204,7 +209,7 @@ export const voiceMemoRouter = router({
       const companyNames = Array.from(
         new Set(recentContacts.map((c) => c.company).filter((c): c is string => !!c)),
       );
-      const transcribePrompt = buildWhisperPrompt(propertyNames, contactNames, companyNames);
+      const transcribePrompt = buildWhisperPrompt(propertyNames, contactNames, companyNames, userProfile?.marketFocus ?? undefined);
 
       // 3. Transcribe with Gemini (inline audio, no S3)
       const transcription = await transcribeAudioWithGemini({

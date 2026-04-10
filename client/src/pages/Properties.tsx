@@ -129,9 +129,10 @@ function CreatePropertyModal({
   const profileQ = trpc.users.getMyProfile.useQuery();
   const prefs2 = parsePreferences(profileQ.data?.preferences ?? "");
   const PROPERTY_TYPES = ALL_PROPERTY_TYPES.filter((t) => getEnabledTypes(prefs2).includes(t.value));
+  const firstEnabledType = PROPERTY_TYPES[0]?.value ?? "apartment";
   const [form, setForm] = useState({
     name: "",
-    propertyType: "apartment",
+    propertyType: firstEnabledType as string,
     address: "",
     city: "",
     state: "",

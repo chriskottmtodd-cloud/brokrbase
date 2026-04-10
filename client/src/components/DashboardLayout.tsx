@@ -90,10 +90,10 @@ function PasswordLoginScreen() {
     <div className="flex items-center justify-center min-h-screen bg-background">
       <div className="flex flex-col items-center gap-6 p-8 max-w-sm w-full">
         <div className="flex items-center gap-3 mb-2">
-          <Building2 className="h-10 w-10 text-primary" />
+          <img src="/icon-192.png" alt="Brokrbase" className="h-10 w-10" />
           <div>
-            <h1 className="text-xl font-bold text-foreground">RE Investment CRM</h1>
-            <p className="text-xs text-muted-foreground">Idaho MHC & Apartments</p>
+            <h1 className="text-xl font-bold text-foreground">Brokrbase</h1>
+            <p className="text-xs text-muted-foreground">Your CRM, your way</p>
           </div>
         </div>
         <div className="text-center space-y-1 mb-2">
@@ -172,6 +172,7 @@ function DashboardLayoutContent({
   setSidebarWidth: (width: number) => void;
 }) {
   const { user, logout } = useAuth();
+  const { data: profile } = trpc.users.getMyProfile.useQuery(undefined, { enabled: !!user });
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -229,10 +230,10 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed && (
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <Building2 className="h-5 w-5 text-primary shrink-0" />
+                  <img src="/icon-192.png" alt="Brokrbase" className="h-5 w-5 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-foreground truncate leading-tight">RE CRM</p>
-                    <p className="text-xs text-muted-foreground truncate">Idaho Investment Sales</p>
+                    <p className="text-sm font-bold text-foreground truncate leading-tight">Brokrbase</p>
+                    <p className="text-xs text-muted-foreground truncate">{profile?.marketFocus ? profile.marketFocus.slice(0, 50) : "Commercial Real Estate"}</p>
                   </div>
                   <GlobalSearch />
                 </div>
