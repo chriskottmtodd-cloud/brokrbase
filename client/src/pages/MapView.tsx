@@ -142,6 +142,11 @@ export default function MapView() {
     zip: "",
   });
 
+  // Drop-pin mode
+  const [droppingPin, setDroppingPin] = useState(false);
+  const droppingPinRef = useRef(false);
+  const pendingMarkerRef = useRef<google.maps.Marker | null>(null);
+
   // Edit-boundary mode for an existing property
   const [editingPropertyId, setEditingPropertyId] = useState<number | null>(null);
   // Draw-boundary mode for an existing property that has no boundary yet
@@ -327,6 +332,59 @@ export default function MapView() {
           },
         );
 
+        // Click to drop pin
+        maps.event.addListener(map, "click", (e: google.maps.MapMouseEvent) => {
+          if (!droppingPinRef.current || !e.latLng) return;
+
+          // Remove previous pending marker
+          if (pendingMarkerRef.current) {
+            pendingMarkerRef.current.setMap(null);
+          }
+
+          const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+
+          // Place a temporary marker
+          const marker = new maps.Marker({
+            position: pos,
+            map,
+            icon: {
+              path: maps.SymbolPath.CIRCLE,
+              scale: 10,
+              fillColor: "#d03238",
+              fillOpacity: 1,
+              strokeColor: "#ffffff",
+              strokeWeight: 2,
+            },
+          });
+          pendingMarkerRef.current = marker;
+
+          setPendingCenter(pos);
+          setShowNameModal(true);
+          setDroppingPin(false);
+          droppingPinRef.current = false;
+
+          // Reverse-geocode
+          setGeocoding(true);
+          const geocoder = new maps.Geocoder();
+          geocoder.geocode({ location: pos }, (results, status) => {
+            setGeocoding(false);
+            if (status !== "OK" || !results?.[0]) return;
+            const components = results[0].address_components;
+            const get = (type: string) =>
+              components.find((c) => c.types.includes(type))?.short_name ?? "";
+            const streetNumber = get("street_number");
+            const route = get("route");
+            const addr = [streetNumber, route].filter(Boolean).join(" ");
+            setNewPropertyForm((prev) => ({
+              ...prev,
+              address: addr,
+              city: get("locality") || get("sublocality") || get("neighborhood"),
+              state: get("administrative_area_level_1"),
+              zip: get("postal_code"),
+            }));
+          });
+        });
+
         setMapsReady(true);
       })
       .catch((err) => {
@@ -456,8 +514,14 @@ export default function MapView() {
       pendingPolygon.setMap(null);
       setPendingPolygon(null);
     }
+    if (pendingMarkerRef.current) {
+      pendingMarkerRef.current.setMap(null);
+      pendingMarkerRef.current = null;
+    }
     setPendingCenter(null);
     setShowNameModal(false);
+    setDroppingPin(false);
+    droppingPinRef.current = false;
     setNewPropertyForm({ name: "", propertyType: firstEnabledType, address: "", city: "", state: "", zip: "" });
   };
 
@@ -489,22 +553,24 @@ export default function MapView() {
 
   // ─── Save a newly-drawn property ─────────────────────────────────────────
   const handleSaveNewProperty = async () => {
-    if (!pendingPolygon || !pendingCenter) return;
+    if (!pendingCenter) return;
     if (!newPropertyForm.name.trim()) {
       toast.error("Name is required");
       return;
     }
 
-    // Convert the polygon to GeoJSON
-    const path = pendingPolygon.getPath();
-    const ring: number[][] = [];
-    for (let i = 0; i < path.getLength(); i++) {
-      const pt = path.getAt(i);
-      ring.push([pt.lng(), pt.lat()]);
+    // Convert the polygon to GeoJSON if one exists
+    let geojson: string | undefined;
+    if (pendingPolygon) {
+      const path = pendingPolygon.getPath();
+      const ring: number[][] = [];
+      for (let i = 0; i < path.getLength(); i++) {
+        const pt = path.getAt(i);
+        ring.push([pt.lng(), pt.lat()]);
+      }
+      if (ring.length > 0) ring.push(ring[0]);
+      geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
     }
-    // Close the ring (GeoJSON requires first === last)
-    if (ring.length > 0) ring.push(ring[0]);
-    const geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
 
     try {
       await createProperty.mutateAsync({
@@ -522,9 +588,15 @@ export default function MapView() {
       });
       toast.success(`Added ${newPropertyForm.name}`);
 
-      // Clean up the temporary polygon — refetch will draw the saved one
-      pendingPolygon.setMap(null);
-      setPendingPolygon(null);
+      // Clean up temporary markers/polygons
+      if (pendingPolygon) {
+        pendingPolygon.setMap(null);
+        setPendingPolygon(null);
+      }
+      if (pendingMarkerRef.current) {
+        pendingMarkerRef.current.setMap(null);
+        pendingMarkerRef.current = null;
+      }
       setPendingCenter(null);
       setShowNameModal(false);
       setNewPropertyForm({ name: "", propertyType: firstEnabledType, address: "", city: "", state: "", zip: "" });
@@ -650,14 +722,42 @@ export default function MapView() {
 
       {/* Top controls — drawing + recenter */}
       <div className="absolute top-14 left-4 z-10 flex gap-2">
-        {!editingPropertyId && !drawingForPropertyId && (
+        {!editingPropertyId && !drawingForPropertyId && !droppingPin && (
+          <>
+            <Button
+              onClick={() => {
+                setDroppingPin(true);
+                droppingPinRef.current = true;
+                toast.info("Tap anywhere on the map to drop a pin.");
+              }}
+              disabled={!mapsReady}
+              variant="outline"
+              className="gap-2 shadow-lg bg-white"
+              size="sm"
+            >
+              <MapPin className="h-4 w-4" /> Drop Pin
+            </Button>
+            <Button
+              onClick={startDrawing}
+              disabled={!mapsReady}
+              className="gap-2 shadow-lg"
+              size="sm"
+            >
+              <Plus className="h-4 w-4" /> Draw Boundary
+            </Button>
+          </>
+        )}
+        {droppingPin && (
           <Button
-            onClick={startDrawing}
-            disabled={!mapsReady}
-            className="gap-2 shadow-lg"
+            onClick={() => {
+              setDroppingPin(false);
+              droppingPinRef.current = false;
+            }}
+            variant="outline"
+            className="shadow-lg bg-white"
             size="sm"
           >
-            <Plus className="h-4 w-4" /> Draw New Property
+            Cancel
           </Button>
         )}
         {drawingForPropertyId && (
