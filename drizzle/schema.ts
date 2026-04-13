@@ -1,6 +1,7 @@
 import {
   bigint,
   boolean,
+  double,
   float,
   index,
   int,
@@ -165,8 +166,8 @@ export const properties = mysqlTable("properties", {
   ownerCompany: varchar("ownerCompany", { length: 200 }),
   ownerPhone: varchar("ownerPhone", { length: 50 }),
   ownerEmail: varchar("ownerEmail", { length: 200 }),
-  latitude: float("latitude"),
-  longitude: float("longitude"),
+  latitude: double("latitude"),
+  longitude: double("longitude"),
   // GeoJSON polygon (or null) — when the broker draws a parcel boundary on
   // the map, the shape is stored here. Pin location stays in lat/lng.
   // Format: { "type": "Polygon", "coordinates": [[[lng,lat],[lng,lat],...]] }
