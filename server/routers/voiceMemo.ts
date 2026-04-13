@@ -8,7 +8,7 @@ import {
   resolvePropertyMention,
   type ResolvedEntity,
 } from "../_core/entityResolution";
-import { createActivity, getContacts, getProperties, getUserById } from "../db";
+import { createActivity, getContacts, getProperties, getUserById, updateActivity } from "../db";
 import { parseLlmJson } from "../lib/parseLlmJson";
 
 // ─── LLM extraction schema (names, not IDs) ─────────────────────────────
@@ -296,6 +296,22 @@ export const voiceMemoRouter = router({
         name ? peopleResolved.get(name) : undefined;
       const refForProperty = (name: string): ResolvedEntity | undefined =>
         name ? propsResolved.get(name) : undefined;
+
+      // 6b. Link the activity to the first resolved contact and property
+      if (activityId) {
+        const firstContact = Array.from(peopleResolved.values()).find((r) => r.id && (r.confidence === "high" || r.confidence === "medium"));
+        const firstProperty = Array.from(propsResolved.values()).find((r) => r.id && (r.confidence === "high" || r.confidence === "medium"));
+        const activityUpdate: Record<string, unknown> = {};
+        if (firstContact?.id) activityUpdate.contactId = firstContact.id;
+        if (firstProperty?.id) activityUpdate.propertyId = firstProperty.id;
+        if (Object.keys(activityUpdate).length > 0) {
+          try {
+            await updateActivity(activityId, userId, activityUpdate as any);
+          } catch {
+            // Non-critical — activity exists, just not linked
+          }
+        }
+      }
 
       // 7. Assemble result
       const newTasks = extraction.newTasks.map((t) => ({
