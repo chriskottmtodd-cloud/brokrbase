@@ -67,7 +67,7 @@ function loadGoogleMaps(apiKey: string): Promise<typeof google.maps> {
       delete (window as unknown as Record<string, () => void>)[callbackName];
     };
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=drawing,geometry&callback=${callbackName}&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=drawing,geometry,places&callback=${callbackName}&loading=async`;
     script.async = true;
     script.defer = true;
     script.onerror = () => reject(new Error("Failed to load Google Maps"));
@@ -477,6 +477,7 @@ export default function MapView() {
             position: { lat: p.latitude, lng: p.longitude },
             map,
             title: p.name,
+            draggable: true,
             icon: {
               path: maps.SymbolPath.CIRCLE,
               scale: 8,
@@ -488,6 +489,21 @@ export default function MapView() {
           });
           marker.addListener("click", () => {
             setSelectedProperty(p);
+          });
+          marker.addListener("dragend", () => {
+            const pos = marker!.getPosition();
+            if (!pos) return;
+            updateProperty.mutateAsync({
+              id: p.id,
+              data: { latitude: pos.lat(), longitude: pos.lng() },
+            }).then(() => {
+              toast.success("Pin moved");
+              utils.properties.forMap.invalidate();
+            }).catch(() => {
+              toast.error("Failed to move pin");
+              // Snap back
+              marker!.setPosition({ lat: p.latitude!, lng: p.longitude! });
+            });
           });
           markersRef.current.set(p.id, marker);
         } else {
@@ -863,6 +879,18 @@ export default function MapView() {
       {mapsError && (
         <div className="absolute top-4 left-4 right-4 z-10 bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-900">
           {mapsError}
+        </div>
+      )}
+
+      {/* Search bar */}
+      {mapsReady && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-72 sm:w-80">
+          <MapSearchBar
+            onPlaceSelected={(lat, lng) => {
+              mapRef.current?.panTo({ lat, lng });
+              mapRef.current?.setZoom(16);
+            }}
+          />
         </div>
       )}
 
@@ -1439,5 +1467,40 @@ function PropertyCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Map search bar using Google Places Autocomplete ───────────────────────
+function MapSearchBar({ onPlaceSelected }: { onPlaceSelected: (lat: number, lng: number) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  useEffect(() => {
+    if (!inputRef.current || !window.google?.maps?.places || autocompleteRef.current) return;
+
+    const ac = new window.google.maps.places.Autocomplete(inputRef.current, {
+      types: ["geocode", "establishment"],
+      fields: ["geometry", "formatted_address"],
+    });
+
+    ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (place.geometry?.location) {
+        onPlaceSelected(place.geometry.location.lat(), place.geometry.location.lng());
+        if (inputRef.current) inputRef.current.value = "";
+        inputRef.current?.blur();
+      }
+    });
+
+    autocompleteRef.current = ac;
+  }, [onPlaceSelected]);
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      placeholder="Search a place or address..."
+      className="w-full h-9 px-3 text-sm rounded-lg border border-border bg-white shadow-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+    />
   );
 }
