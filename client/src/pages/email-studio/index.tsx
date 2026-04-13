@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -137,6 +138,7 @@ export default function EmailStudio() {
   // Indices of actions that have been successfully applied — shown in their
   // collapsed/green "done" state so the broker knows what's saved.
   const [appliedActionIdxs, setAppliedActionIdxs] = useState<Set<number>>(new Set());
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<number>>(new Set());
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const profile = profileQuery.data;
@@ -145,6 +147,14 @@ export default function EmailStudio() {
   // backup when the server-side AI detection misses someone.
   const allContactsQuery = trpc.contacts.list.useQuery({ limit: 2000 });
   const allContacts = allContactsQuery.data ?? [];
+
+  // Pending tasks for the detected contact — so broker can mark tasks complete
+  const resolvedContactId = confirmedContactId ?? analysis?.detectedRecipient?.contactId ?? null;
+  const pendingTasksQuery = trpc.tasks.list.useQuery(
+    { contactId: resolvedContactId!, status: "pending" },
+    { enabled: !!resolvedContactId },
+  );
+  const completeTaskMut = trpc.tasks.update.useMutation();
 
   // Compose mode: lookup the picked recipient
   const composeRecipient = composeRecipientId
@@ -1085,6 +1095,50 @@ For suggestedActions: ALWAYS include exactly one log_activity action for this em
                   </div>
                 );
               })}
+
+              {/* Pending tasks for this contact — mark complete */}
+              {resolvedContactId && pendingTasksQuery.data && pendingTasksQuery.data.length > 0 && (
+                <div className="border rounded-md p-2 space-y-1.5">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Pending Tasks for {confirmedContact?.firstName ?? analysis?.detectedRecipient?.firstName ?? "this contact"}
+                  </div>
+                  {pendingTasksQuery.data.map((task) => {
+                    const isCompleted = completedTaskIds.has(task.id);
+                    return (
+                      <div key={task.id} className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          disabled={isCompleted}
+                          onClick={async () => {
+                            try {
+                              await completeTaskMut.mutateAsync({ id: task.id, status: "completed" });
+                              setCompletedTaskIds((prev) => new Set(prev).add(task.id));
+                              toast.success(`Completed: ${task.title}`);
+                            } catch {
+                              toast.error("Failed to complete task");
+                            }
+                          }}
+                          className="mt-0.5 shrink-0"
+                        >
+                          {isCompleted ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/40" />
+                          )}
+                        </button>
+                        <div className={`flex-1 min-w-0 ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
+                          <div className="text-sm">{task.title}</div>
+                          {task.dueAt && (
+                            <div className="text-[10px] text-muted-foreground">
+                              Due {formatDistanceToNow(new Date(task.dueAt), { addSuffix: true })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* + Add follow-up task — broker's most common manual addition */}
               <button
