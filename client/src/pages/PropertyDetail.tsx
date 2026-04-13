@@ -158,10 +158,17 @@ export default function PropertyDetail() {
   });
 
   const completeTask = trpc.tasks.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("Task completed");
       utils.tasks.list.invalidate();
       utils.dashboard.metrics.invalidate();
+      // Log an activity for the completed task
+      createActivity.mutate({
+        type: "note",
+        propertyId,
+        subject: `Completed task`,
+        notes: tasks?.find((t) => t.id === variables.id)?.title ?? "Task completed",
+      });
     },
     onError: (e) => toast.error(e.message),
   });
