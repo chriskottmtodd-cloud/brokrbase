@@ -93,10 +93,34 @@ export default function ContactDetail() {
     { id: contactId },
     { enabled: !!contactId },
   );
-  const { data: duplicates } = trpc.contacts.checkDuplicate.useQuery(
-    { firstName: contact?.firstName ?? "", lastName: contact?.lastName ?? "", email: contact?.email ?? undefined, phone: contact?.phone ?? undefined },
-    { enabled: !!contact },
+  // Check for duplicates using all available fields — name, email, and phone separately
+  // so the match works both directions
+  const { data: dupsByName } = trpc.contacts.checkDuplicate.useQuery(
+    { firstName: contact?.firstName ?? "", lastName: contact?.lastName ?? "" },
+    { enabled: !!contact?.firstName },
   );
+  const { data: dupsByEmail } = trpc.contacts.checkDuplicate.useQuery(
+    { firstName: contact?.firstName ?? "", email: contact?.email ?? undefined },
+    { enabled: !!contact?.email },
+  );
+  const { data: dupsByPhone } = trpc.contacts.checkDuplicate.useQuery(
+    { firstName: contact?.firstName ?? "", phone: contact?.phone ?? undefined },
+    { enabled: !!contact?.phone },
+  );
+  // Merge and dedupe results
+  const duplicates = (() => {
+    const seen = new Set<number>();
+    const all: typeof dupsByName = [];
+    for (const list of [dupsByName, dupsByEmail, dupsByPhone]) {
+      for (const d of list ?? []) {
+        if (!seen.has(d.id)) {
+          seen.add(d.id);
+          all.push(d);
+        }
+      }
+    }
+    return all;
+  })();
   const { data: activities, refetch: refetchActivities } = trpc.activities.list.useQuery(
     { contactId, limit: 20 },
     { enabled: !!contactId },
