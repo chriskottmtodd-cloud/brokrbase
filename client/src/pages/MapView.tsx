@@ -147,6 +147,13 @@ export default function MapView() {
   const droppingPinRef = useRef(false);
   const pendingMarkerRef = useRef<google.maps.Marker | null>(null);
 
+  // Custom drawing mode (replaces Google DrawingManager for better mobile UX)
+  const [isCustomDrawing, setIsCustomDrawing] = useState(false);
+  const isCustomDrawingRef = useRef(false);
+  const drawVerticesRef = useRef<google.maps.Marker[]>([]);
+  const drawPolylineRef = useRef<google.maps.Polyline | null>(null);
+  const drawPointsRef = useRef<google.maps.LatLng[]>([]);
+
   // Edit-boundary mode for an existing property
   const [editingPropertyId, setEditingPropertyId] = useState<number | null>(null);
   // Draw-boundary mode for an existing property that has no boundary yet
@@ -332,18 +339,55 @@ export default function MapView() {
           },
         );
 
-        // Click to drop pin
+        // Click handler for drop-pin AND custom drawing
         maps.event.addListener(map, "click", (e: google.maps.MapMouseEvent) => {
-          if (!droppingPinRef.current || !e.latLng) return;
+          if (!e.latLng) return;
 
-          // Remove previous pending marker
+          // Custom boundary drawing mode
+          if (isCustomDrawingRef.current) {
+            const pt = e.latLng;
+            drawPointsRef.current.push(pt);
+
+            // Place a visible vertex marker
+            const vertexMarker = new maps.Marker({
+              position: pt,
+              map,
+              icon: {
+                path: maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: "#d03238",
+                fillOpacity: 1,
+                strokeColor: "#ffffff",
+                strokeWeight: 2,
+              },
+              zIndex: 100,
+            });
+            drawVerticesRef.current.push(vertexMarker);
+
+            // Update polyline to show progress
+            if (drawPolylineRef.current) {
+              drawPolylineRef.current.setPath(drawPointsRef.current);
+            } else {
+              drawPolylineRef.current = new maps.Polyline({
+                path: drawPointsRef.current,
+                map,
+                strokeColor: "#d03238",
+                strokeWeight: 2,
+                strokeOpacity: 0.8,
+              });
+            }
+            return;
+          }
+
+          // Drop pin mode
+          if (!droppingPinRef.current) return;
+
           if (pendingMarkerRef.current) {
             pendingMarkerRef.current.setMap(null);
           }
 
           const pos = { lat: e.latLng.lat(), lng: e.latLng.lng() };
 
-          // Place a temporary marker
           const marker = new maps.Marker({
             position: pos,
             map,
@@ -503,13 +547,109 @@ export default function MapView() {
 
   // ─── Drawing controls ─────────────────────────────────────────────────────
   const startDrawing = () => {
-    if (!drawingManagerRef.current || !window.google?.maps) return;
-    drawingManagerRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
-    toast.info("Tap points around the property. Tap the first point again to close.");
+    if (!window.google?.maps) return;
+    isCustomDrawingRef.current = true;
+    setIsCustomDrawing(true);
+    drawPointsRef.current = [];
+    toast.info("Tap points around the property. Hit 'Finish' when done.");
+  };
+
+  const cleanupCustomDrawing = () => {
+    drawVerticesRef.current.forEach((m) => m.setMap(null));
+    drawVerticesRef.current = [];
+    if (drawPolylineRef.current) {
+      drawPolylineRef.current.setMap(null);
+      drawPolylineRef.current = null;
+    }
+    drawPointsRef.current = [];
+    isCustomDrawingRef.current = false;
+    setIsCustomDrawing(false);
+  };
+
+  const finishCustomDrawing = () => {
+    const points = drawPointsRef.current;
+    if (points.length < 3) {
+      toast.error("Need at least 3 points to make a boundary");
+      return;
+    }
+
+    // Build polygon from collected points
+    const maps = window.google?.maps;
+    if (!maps || !mapRef.current) return;
+
+    const polygon = new maps.Polygon({
+      paths: points,
+      fillColor: "#d03238",
+      fillOpacity: 0.25,
+      strokeColor: "#d03238",
+      strokeWeight: 2,
+      map: mapRef.current,
+    });
+
+    // Calculate centroid
+    let latSum = 0, lngSum = 0;
+    for (const pt of points) {
+      latSum += pt.lat();
+      lngSum += pt.lng();
+    }
+    const centroid = { lat: latSum / points.length, lng: lngSum / points.length };
+
+    // Clean up drawing UI
+    cleanupCustomDrawing();
+
+    // Check if drawing for existing property
+    const existingId = drawingForPropertyIdRef.current;
+    if (existingId) {
+      const ring: number[][] = points.map((pt) => [pt.lng(), pt.lat()]);
+      ring.push(ring[0]);
+      const geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
+
+      polygon.setMap(null);
+      drawingForPropertyIdRef.current = null;
+      setDrawingForPropertyId(null);
+
+      updateProperty.mutateAsync({
+        id: existingId,
+        data: { boundary: geojson, latitude: centroid.lat, longitude: centroid.lng },
+      }).then(() => {
+        toast.success("Boundary saved");
+        utils.properties.forMap.invalidate();
+      }).catch(() => {
+        toast.error("Failed to save boundary");
+      });
+      return;
+    }
+
+    // New property — show name modal
+    setPendingPolygon(polygon);
+    setPendingCenter(centroid);
+    setShowNameModal(true);
+
+    // Reverse-geocode
+    setGeocoding(true);
+    const geocoder = new maps.Geocoder();
+    geocoder.geocode({ location: centroid }, (results, status) => {
+      setGeocoding(false);
+      if (status !== "OK" || !results?.[0]) return;
+      const components = results[0].address_components;
+      const get = (type: string) =>
+        components.find((c) => c.types.includes(type))?.short_name ?? "";
+      const streetNumber = get("street_number");
+      const route = get("route");
+      const addr = [streetNumber, route].filter(Boolean).join(" ");
+      setNewPropertyForm((prev) => ({
+        ...prev,
+        address: addr,
+        city: get("locality") || get("sublocality") || get("neighborhood"),
+        state: get("administrative_area_level_1"),
+        zip: get("postal_code"),
+      }));
+    });
   };
 
   const cancelDrawing = () => {
     if (drawingManagerRef.current) drawingManagerRef.current.setDrawingMode(null);
+    cleanupCustomDrawing();
     if (pendingPolygon) {
       pendingPolygon.setMap(null);
       setPendingPolygon(null);
@@ -522,6 +662,8 @@ export default function MapView() {
     setShowNameModal(false);
     setDroppingPin(false);
     droppingPinRef.current = false;
+    drawingForPropertyIdRef.current = null;
+    setDrawingForPropertyId(null);
     setNewPropertyForm({ name: "", propertyType: firstEnabledType, address: "", city: "", state: "", zip: "" });
   };
 
@@ -722,7 +864,7 @@ export default function MapView() {
 
       {/* Top controls — drawing + recenter */}
       <div className="absolute top-14 left-4 z-10 flex gap-2">
-        {!editingPropertyId && !drawingForPropertyId && !droppingPin && (
+        {!editingPropertyId && !drawingForPropertyId && !droppingPin && !isCustomDrawing && (
           <>
             <Button
               onClick={() => {
@@ -747,6 +889,28 @@ export default function MapView() {
             </Button>
           </>
         )}
+        {(isCustomDrawing || drawingForPropertyId) && (
+          <>
+            <Button
+              onClick={finishCustomDrawing}
+              className="gap-2 shadow-lg"
+              size="sm"
+            >
+              Finish
+            </Button>
+            <Button
+              onClick={cancelDrawing}
+              variant="outline"
+              className="shadow-lg bg-white"
+              size="sm"
+            >
+              Cancel
+            </Button>
+            <span className="text-xs text-white bg-black/50 px-2 py-1 rounded-full shadow">
+              {drawPointsRef.current.length} points
+            </span>
+          </>
+        )}
         {droppingPin && (
           <Button
             onClick={() => {
@@ -758,20 +922,6 @@ export default function MapView() {
             size="sm"
           >
             Cancel
-          </Button>
-        )}
-        {drawingForPropertyId && (
-          <Button
-            onClick={() => {
-              if (drawingManagerRef.current) drawingManagerRef.current.setDrawingMode(null);
-              drawingForPropertyIdRef.current = null;
-              setDrawingForPropertyId(null);
-            }}
-            variant="outline"
-            className="shadow-lg bg-white"
-            size="sm"
-          >
-            Cancel Drawing
           </Button>
         )}
         {editingPropertyId && (
@@ -830,13 +980,13 @@ export default function MapView() {
             if (selectedProperty.boundary) {
               startEditBoundary(selectedProperty.id);
             } else {
-              // No boundary yet — start drawing mode for this property
+              // No boundary yet — start custom drawing mode for this property
               drawingForPropertyIdRef.current = selectedProperty.id;
               setDrawingForPropertyId(selectedProperty.id);
-              if (drawingManagerRef.current && window.google?.maps) {
-                drawingManagerRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
-              }
-              toast.info("Tap points around the property. Tap the first point again to close.");
+              isCustomDrawingRef.current = true;
+              setIsCustomDrawing(true);
+              drawPointsRef.current = [];
+              toast.info("Tap points around the property. Hit 'Finish' when done.");
             }
             setSelectedProperty(null);
           }}
