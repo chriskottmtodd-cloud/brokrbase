@@ -39,6 +39,7 @@ import {
   Building2,
   Calendar,
   Check,
+  CheckCircle2,
   DollarSign,
   Edit2,
   Loader2,
@@ -95,6 +96,7 @@ export default function PropertyDetail() {
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editTaskForm, setEditTaskForm] = useState({ title: "", dueAt: "" });
+  const [confirmingTaskId, setConfirmingTaskId] = useState<number | null>(null);
 
   const profileQuery = trpc.users.getMyProfile.useQuery();
   const prefs = parsePreferences(profileQuery.data?.preferences ?? "");
@@ -837,15 +839,35 @@ export default function PropertyDetail() {
                       </div>
                     ) : (
                       <div key={t.id} className="border rounded-md p-2 flex items-start gap-2">
-                        <button
-                          onClick={() =>
-                            completeTask.mutate({ id: t.id, status: "completed" })
-                          }
-                          className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
-                          title="Complete task"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
+                        {confirmingTaskId === t.id ? (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => {
+                                completeTask.mutate({ id: t.id, status: "completed" });
+                                setConfirmingTaskId(null);
+                              }}
+                              className="text-green-600 hover:text-green-700"
+                              title="Confirm complete"
+                            >
+                              <CheckCircle2 className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmingTaskId(null)}
+                              className="text-muted-foreground hover:text-foreground"
+                              title="Cancel"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingTaskId(t.id)}
+                            className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
+                            title="Complete task"
+                          >
+                            <div className="h-4 w-4 rounded-full border-2 border-current" />
+                          </button>
+                        )}
                         <button
                           className="flex-1 text-left min-w-0"
                           onClick={() => {
