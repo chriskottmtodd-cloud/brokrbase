@@ -1030,6 +1030,7 @@ export default function MapView() {
           linkedContacts={linkedContactsQuery.data ?? []}
           onClose={() => setSelectedProperty(null)}
           onEditFull={() => setLocation(`/properties/${selectedProperty.id}`)}
+          onNavigate={setLocation}
           onEditBoundary={() => {
             if (selectedProperty.boundary) {
               startEditBoundary(selectedProperty.id);
@@ -1147,6 +1148,7 @@ function PropertyCard({
   onEditBoundary,
   onRemoveBoundary,
   onDelete,
+  onNavigate,
   hasBoundary,
   prefs,
 }: {
@@ -1159,6 +1161,7 @@ function PropertyCard({
   onEditBoundary: () => void;
   onRemoveBoundary: () => void;
   onDelete: () => void;
+  onNavigate: (path: string) => void;
   hasBoundary: boolean;
   prefs: UserPreferences;
 }) {
@@ -1390,7 +1393,12 @@ function PropertyCard({
             </div>
             <div className="space-y-1">
               {linkedContacts.map((c) => (
-                <div key={c.id} className="border rounded-md p-1.5 text-xs flex items-center gap-1.5">
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => onNavigate(`/contacts/${c.contactId}`)}
+                  className="w-full text-left border rounded-md p-1.5 text-xs flex items-center gap-1.5 hover:bg-muted/40"
+                >
                   <span className="font-medium">{c.firstName} {c.lastName}</span>
                   {c.dealRole && (
                     <Badge variant="outline" className="text-[9px] capitalize">
@@ -1398,7 +1406,7 @@ function PropertyCard({
                     </Badge>
                   )}
                   {c.company && <span className="text-muted-foreground ml-auto truncate">{c.company}</span>}
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -1445,14 +1453,19 @@ function PropertyCard({
           ) : (
             <div className="space-y-1">
               {tasks.slice(0, 3).map((t) => (
-                <div key={t.id} className="border rounded-md p-1.5 text-xs">
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onNavigate("/tasks")}
+                  className="w-full text-left border rounded-md p-1.5 text-xs hover:bg-muted/40"
+                >
                   <div className="font-medium line-clamp-1">{t.title}</div>
                   {t.dueAt && (
                     <div className="text-muted-foreground text-[10px]">
                       Due {formatDistanceToNow(new Date(t.dueAt), { addSuffix: true })}
                     </div>
                   )}
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -1463,28 +1476,28 @@ function PropertyCard({
           <Button onClick={onEditFull} variant="default" size="sm" className="w-full gap-1">
             <Edit2 className="h-3.5 w-3.5" /> Open Full Property Page
           </Button>
-          <Button onClick={onEditBoundary} variant="outline" size="sm" className="w-full gap-1">
-            <Pencil className="h-3.5 w-3.5" />
-            {hasBoundary ? "Edit Boundary" : "Draw Boundary"}
-          </Button>
-          {hasBoundary && (
-            <Button
-              onClick={onRemoveBoundary}
-              variant="outline"
-              size="sm"
-              className="w-full gap-1 text-muted-foreground"
+          <div className="flex gap-1.5">
+            <button
+              onClick={onEditBoundary}
+              className="flex-1 text-[10px] text-muted-foreground hover:text-foreground py-1 rounded border border-border hover:bg-muted/40"
             >
-              Remove Boundary Only
-            </Button>
-          )}
-          <Button
-            onClick={onDelete}
-            variant="outline"
-            size="sm"
-            className="w-full gap-1 text-destructive hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Delete Property
-          </Button>
+              {hasBoundary ? "Edit Boundary" : "Draw Boundary"}
+            </button>
+            {hasBoundary && (
+              <button
+                onClick={onRemoveBoundary}
+                className="flex-1 text-[10px] text-muted-foreground hover:text-foreground py-1 rounded border border-border hover:bg-muted/40"
+              >
+                Remove Boundary
+              </button>
+            )}
+            <button
+              onClick={onDelete}
+              className="text-[10px] text-muted-foreground hover:text-destructive py-1 px-2 rounded border border-border hover:bg-muted/40"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </div>
     </div>
