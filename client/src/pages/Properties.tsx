@@ -62,57 +62,73 @@ export default function Properties() {
         />
       </div>
 
-      {properties?.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
+      <div className="overflow-x-auto border rounded-md">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-left">
+              <th className="p-2.5 font-semibold">Name</th>
+              <th className="p-2.5 font-semibold">Type</th>
+              <th className="p-2.5 font-semibold">City</th>
+              <th className="p-2.5 font-semibold">Owner</th>
+              <th className="p-2.5 font-semibold">Tenant</th>
+              <th className="p-2.5 font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {properties?.map((p) => {
+              const color = getTypeColor(prefs, p.propertyType);
+              return (
+                <tr
+                  key={p.id}
+                  className="border-t hover:bg-muted/40 cursor-pointer"
+                  onClick={() => setLocation(`/properties/${p.id}`)}
+                >
+                  <td className="p-2.5">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span className="font-medium truncate max-w-[200px]">{p.name}</span>
+                    </div>
+                  </td>
+                  <td className="p-2.5">
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] capitalize"
+                      style={{ borderColor: color + "55", color }}
+                    >
+                      {p.propertyType.replace("_", " ")}
+                    </Badge>
+                  </td>
+                  <td className="p-2.5 text-muted-foreground">
+                    {p.city}{p.state ? `, ${p.state}` : ""}
+                  </td>
+                  <td className="p-2.5 text-muted-foreground truncate max-w-[150px]">
+                    {p.ownerName || "—"}
+                  </td>
+                  <td className="p-2.5 text-muted-foreground truncate max-w-[150px]">
+                    {(p as any).primaryTenant || "—"}
+                  </td>
+                  <td className="p-2.5">
+                    <Badge variant="outline" className="text-[10px] capitalize">
+                      {p.status.replace("_", " ")}
+                    </Badge>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {properties?.length === 0 && (
+          <div className="py-12 text-center text-muted-foreground">
             <Building2 className="h-10 w-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">No properties yet</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowCreate(true)}>
               Add your first property
             </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {properties?.map((p) => {
-          const color = getTypeColor(prefs, p.propertyType);
-          return (
-            <Link key={p.id} href={`/properties/${p.id}`}>
-              <Card className="hover:bg-muted/40 cursor-pointer h-full">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-2">
-                    <div
-                      className="h-9 w-9 rounded-md flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: color + "22", color }}
-                    >
-                      <Building2 className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{p.name}</div>
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] capitalize"
-                          style={{ borderColor: color + "55", color }}
-                        >
-                          {p.propertyType.replace("_", " ")}
-                        </Badge>
-                        {p.unitCount && <span>{p.unitCount} units</span>}
-                      </div>
-                      {p.city && (
-                        <div className="text-xs text-muted-foreground mt-1 truncate">
-                          {p.city}
-                          {p.state ? `, ${p.state}` : ""}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          );
-        })}
+          </div>
+        )}
       </div>
 
       {showCreate && (
