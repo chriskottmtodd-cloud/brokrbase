@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Edit2, Plus, Search, UserPlus } from "lucide-react";
+import { CheckCircle2, Edit2, Plus, Search, UserPlus, X } from "lucide-react";
 import { DuplicateWarning } from "./DuplicateWarning";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -104,6 +104,35 @@ export function VoiceMemoReviewPanel({
   const [tasks, setTasks] = useState(() => data.newTasks.map((t) => ({ ...t })));
   const [updates, setUpdates] = useState(() => data.propertyUpdates.map((u) => ({ ...u })));
   const [links, setLinks] = useState(() => data.contactLinks.map((l) => ({ ...l })));
+
+  // Find the primary detected contact for pending task lookup
+  const detectedContactId = (() => {
+    for (const t of data.newTasks) {
+      if (t.contact?.id && (t.contact.confidence === "high" || t.contact.confidence === "medium")) return t.contact.id;
+    }
+    for (const l of data.contactLinks) {
+      if (l.contact?.id && (l.contact.confidence === "high" || l.contact.confidence === "medium")) return l.contact.id;
+    }
+    return null;
+  })();
+  const detectedContactName = (() => {
+    for (const t of data.newTasks) {
+      if (t.contact?.id === detectedContactId) return t.contact?.name;
+    }
+    for (const l of data.contactLinks) {
+      if (l.contact?.id === detectedContactId) return l.contact?.name;
+    }
+    return null;
+  })();
+
+  // Pending tasks for detected contact
+  const pendingTasksQuery = trpc.tasks.list.useQuery(
+    { contactId: detectedContactId!, status: "pending" },
+    { enabled: !!detectedContactId },
+  );
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<number>>(new Set());
+  const [confirmingPendingId, setConfirmingPendingId] = useState<number | null>(null);
+  const completeTaskMut = trpc.tasks.update.useMutation();
 
   const autoCheck = (r?: ResolvedRef) =>
     !r || r.confidence === "high" || r.confidence === "medium";
@@ -237,6 +266,60 @@ export function VoiceMemoReviewPanel({
           </ul>
         )}
       </div>
+
+      {/* Pending tasks for detected contact */}
+      {detectedContactId && pendingTasksQuery.data && pendingTasksQuery.data.length > 0 && (
+        <Section title={`Pending Tasks for ${detectedContactName ?? "this contact"}`}>
+          {pendingTasksQuery.data.map((pt) => {
+            const isDone = completedTaskIds.has(pt.id);
+            return (
+              <div key={pt.id} className="flex items-start gap-2 border rounded-md p-2">
+                {isDone ? (
+                  <div className="mt-0.5 shrink-0">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  </div>
+                ) : confirmingPendingId === pt.id ? (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await completeTaskMut.mutateAsync({ id: pt.id, status: "completed" });
+                          setCompletedTaskIds((prev) => new Set(prev).add(pt.id));
+                          toast.success(`Completed: ${pt.title}`);
+                        } catch {
+                          toast.error("Failed to complete task");
+                        }
+                        setConfirmingPendingId(null);
+                      }}
+                      className="text-green-600 hover:text-green-700"
+                    >
+                      <CheckCircle2 className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => setConfirmingPendingId(null)} className="text-muted-foreground hover:text-foreground">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmingPendingId(pt.id)}
+                    className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
+                  >
+                    <div className="h-4 w-4 rounded-full border-2 border-current" />
+                  </button>
+                )}
+                <div className={`flex-1 min-w-0 ${isDone ? "line-through text-muted-foreground" : ""}`}>
+                  <div className="text-sm font-medium">{pt.title}</div>
+                  {pt.dueAt && (
+                    <div className="text-[10px] text-muted-foreground">
+                      Due {new Date(pt.dueAt).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </Section>
+      )}
 
       {tasks.length > 0 && (
         <Section title={`New Tasks (${tasks.length})`}>
