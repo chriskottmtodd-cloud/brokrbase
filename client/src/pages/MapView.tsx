@@ -176,6 +176,10 @@ export default function MapView() {
     { propertyId: selectedProperty?.id ?? 0, status: "pending" },
     { enabled: !!selectedProperty?.id },
   );
+  const linkedContactsQuery = trpc.contactLinks.listForProperty.useQuery(
+    { propertyId: selectedProperty?.id ?? 0 },
+    { enabled: !!selectedProperty?.id },
+  );
 
   // ─── Map initialization (runs once when API key + container ready) ─────────
   useEffect(() => {
@@ -974,6 +978,7 @@ export default function MapView() {
           property={selectedProperty}
           activities={activitiesQuery.data ?? []}
           tasks={tasksQuery.data ?? []}
+          linkedContacts={linkedContactsQuery.data ?? []}
           onClose={() => setSelectedProperty(null)}
           onEditFull={() => setLocation(`/properties/${selectedProperty.id}`)}
           onEditBoundary={() => {
@@ -1087,6 +1092,7 @@ function PropertyCard({
   property,
   activities,
   tasks,
+  linkedContacts,
   onClose,
   onEditFull,
   onEditBoundary,
@@ -1098,6 +1104,7 @@ function PropertyCard({
   property: MapProperty;
   activities: Array<{ id: number; type: string; subject: string | null; notes: string | null; summary: string | null; occurredAt: Date | string }>;
   tasks: Array<{ id: number; title: string; dueAt: Date | string | null; priority: string }>;
+  linkedContacts: Array<{ id: number; contactId: number; firstName: string; lastName: string; company: string | null; dealRole: string | null }>;
   onClose: () => void;
   onEditFull: () => void;
   onEditBoundary: () => void;
@@ -1322,6 +1329,28 @@ function PropertyCard({
                   </a>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Linked contacts (owners, tenants, etc.) */}
+        {linkedContacts.length > 0 && (
+          <div>
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1">
+              <UserIcon className="h-3 w-3" /> People
+            </div>
+            <div className="space-y-1">
+              {linkedContacts.map((c) => (
+                <div key={c.id} className="border rounded-md p-1.5 text-xs flex items-center gap-1.5">
+                  <span className="font-medium">{c.firstName} {c.lastName}</span>
+                  {c.dealRole && (
+                    <Badge variant="outline" className="text-[9px] capitalize">
+                      {c.dealRole.replace("_", " ")}
+                    </Badge>
+                  )}
+                  {c.company && <span className="text-muted-foreground ml-auto truncate">{c.company}</span>}
+                </div>
+              ))}
             </div>
           </div>
         )}

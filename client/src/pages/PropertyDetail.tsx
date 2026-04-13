@@ -84,6 +84,9 @@ export default function PropertyDetail() {
   const [notesText, setNotesText] = useState("");
   const [showAddActivity, setShowAddActivity] = useState(false);
   const [newActivity, setNewActivity] = useState({ type: "call" as string, subject: "", notes: "" });
+  const [showLinkContact, setShowLinkContact] = useState(false);
+  const [linkContactSearch, setLinkContactSearch] = useState("");
+  const [linkContactRole, setLinkContactRole] = useState("owner");
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -156,6 +159,29 @@ export default function PropertyDetail() {
       toast.success("Task completed");
       utils.tasks.list.invalidate();
       utils.dashboard.metrics.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const contactSearchQ = trpc.contacts.list.useQuery(
+    { search: linkContactSearch, limit: 10 },
+    { enabled: showLinkContact && linkContactSearch.length >= 1 },
+  );
+
+  const createLink = trpc.contactLinks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Contact linked");
+      setShowLinkContact(false);
+      setLinkContactSearch("");
+      utils.contactLinks.listForProperty.invalidate({ propertyId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteLink = trpc.contactLinks.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Link removed");
+      utils.contactLinks.listForProperty.invalidate({ propertyId });
     },
     onError: (e) => toast.error(e.message),
   });
@@ -513,37 +539,113 @@ export default function PropertyDetail() {
         <div className="space-y-5">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Users className="h-3.5 w-3.5" />
-                Linked Contacts
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Users className="h-3.5 w-3.5" />
+                  Linked Contacts
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowLinkContact(true)}
+                >
+                  <Plus className="h-3 w-3" /> Link
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!linkedContacts?.length ? (
+              {showLinkContact && (
+                <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
+                  <Select value={linkContactRole} onValueChange={setLinkContactRole}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="owner">Owner</SelectItem>
+                      <SelectItem value="tenant">Tenant</SelectItem>
+                      <SelectItem value="seller">Seller</SelectItem>
+                      <SelectItem value="buyer">Buyer</SelectItem>
+                      <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
+                      <SelectItem value="listing_agent">Listing Agent</SelectItem>
+                      <SelectItem value="property_manager">Property Manager</SelectItem>
+                      <SelectItem value="attorney">Attorney</SelectItem>
+                      <SelectItem value="lender">Lender</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="Search contacts..."
+                    value={linkContactSearch}
+                    onChange={(e) => setLinkContactSearch(e.target.value)}
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                  {linkContactSearch.length >= 1 && (
+                    <div className="max-h-36 overflow-y-auto border rounded">
+                      {!contactSearchQ.data?.length ? (
+                        <div className="text-xs text-muted-foreground px-2 py-1">No contacts found</div>
+                      ) : (
+                        contactSearchQ.data.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
+                            onClick={() =>
+                              createLink.mutate({
+                                contactId: c.id,
+                                propertyId,
+                                dealRole: linkContactRole as any,
+                                source: "manual",
+                              })
+                            }
+                          >
+                            <div className="font-medium">{c.firstName} {c.lastName}</div>
+                            {c.company && <div className="text-[10px] text-muted-foreground">{c.company}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkContact(false); setLinkContactSearch(""); }}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
+              {!linkedContacts?.length && !showLinkContact ? (
                 <p className="text-sm text-muted-foreground italic">No linked contacts</p>
               ) : (
                 <div className="space-y-2">
-                  {linkedContacts.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => setLocation(`/contacts/${c.contactId}`)}
-                      className="w-full text-left border rounded-md p-2 hover:bg-muted/40"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {c.firstName} {c.lastName}
-                        </span>
-                        {c.dealRole && (
-                          <Badge variant="outline" className="text-[10px] capitalize">
-                            {c.dealRole.replace("_", " ")}
-                          </Badge>
+                  {linkedContacts?.map((c) => (
+                    <div key={c.id} className="flex items-start gap-2 border rounded-md p-2">
+                      <button
+                        type="button"
+                        onClick={() => setLocation(`/contacts/${c.contactId}`)}
+                        className="flex-1 text-left min-w-0 hover:bg-muted/40 rounded"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {c.firstName} {c.lastName}
+                          </span>
+                          {c.dealRole && (
+                            <Badge variant="outline" className="text-[10px] capitalize">
+                              {c.dealRole.replace("_", " ")}
+                            </Badge>
+                          )}
+                        </div>
+                        {c.company && (
+                          <div className="text-xs text-muted-foreground">{c.company}</div>
                         )}
-                      </div>
-                      {c.company && (
-                        <div className="text-xs text-muted-foreground">{c.company}</div>
-                      )}
-                    </button>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteLink.mutate({ id: c.id })}
+                        className="text-muted-foreground hover:text-destructive shrink-0 mt-1"
+                        title="Remove link"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

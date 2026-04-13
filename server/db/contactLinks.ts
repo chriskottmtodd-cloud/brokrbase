@@ -61,7 +61,7 @@ export async function deleteContactPropertyLink(id: number, userId: number) {
 
 export async function updateContactPropertyLinkRole(
   id: number,
-  dealRole: "owner" | "seller" | "buyer" | "buyers_broker" | "listing_agent" | "property_manager" | "attorney" | "lender" | "other" | null,
+  dealRole: "owner" | "seller" | "buyer" | "tenant" | "buyers_broker" | "listing_agent" | "property_manager" | "attorney" | "lender" | "other" | null,
   userId: number
 ) {
   const db = await getDb();

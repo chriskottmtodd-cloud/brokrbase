@@ -45,6 +45,7 @@ import {
   Save,
   Trash2,
   User as UserIcon,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -76,6 +77,9 @@ export default function ContactDetail() {
   const [notesText, setNotesText] = useState("");
   const [showAddActivity, setShowAddActivity] = useState(false);
   const [newActivity, setNewActivity] = useState({ type: "call" as string, subject: "", notes: "" });
+  const [showLinkProperty, setShowLinkProperty] = useState(false);
+  const [linkPropertySearch, setLinkPropertySearch] = useState("");
+  const [linkPropertyRole, setLinkPropertyRole] = useState("owner");
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -143,6 +147,29 @@ export default function ContactDetail() {
       toast.success("Task completed");
       utils.tasks.list.invalidate();
       utils.dashboard.metrics.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const propertySearchQ = trpc.properties.list.useQuery(
+    { search: linkPropertySearch, limit: 10 },
+    { enabled: showLinkProperty && linkPropertySearch.length >= 1 },
+  );
+
+  const createLink = trpc.contactLinks.create.useMutation({
+    onSuccess: () => {
+      toast.success("Property linked");
+      setShowLinkProperty(false);
+      setLinkPropertySearch("");
+      utils.contactLinks.listForContact.invalidate({ contactId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteLink = trpc.contactLinks.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Link removed");
+      utils.contactLinks.listForContact.invalidate({ contactId });
     },
     onError: (e) => toast.error(e.message),
   });
@@ -421,34 +448,110 @@ export default function ContactDetail() {
         <div className="space-y-5">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                <Building2 className="h-3.5 w-3.5" /> Linked Properties
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                  <Building2 className="h-3.5 w-3.5" /> Linked Properties
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => setShowLinkProperty(true)}
+                >
+                  <Plus className="h-3 w-3" /> Link
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              {!linkedProperties?.length ? (
+              {showLinkProperty && (
+                <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
+                  <Select value={linkPropertyRole} onValueChange={setLinkPropertyRole}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="owner">Owner</SelectItem>
+                      <SelectItem value="tenant">Tenant</SelectItem>
+                      <SelectItem value="seller">Seller</SelectItem>
+                      <SelectItem value="buyer">Buyer</SelectItem>
+                      <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
+                      <SelectItem value="listing_agent">Listing Agent</SelectItem>
+                      <SelectItem value="property_manager">Property Manager</SelectItem>
+                      <SelectItem value="attorney">Attorney</SelectItem>
+                      <SelectItem value="lender">Lender</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="Search properties..."
+                    value={linkPropertySearch}
+                    onChange={(e) => setLinkPropertySearch(e.target.value)}
+                    className="h-8 text-xs"
+                    autoFocus
+                  />
+                  {linkPropertySearch.length >= 1 && (
+                    <div className="max-h-36 overflow-y-auto border rounded">
+                      {!propertySearchQ.data?.length ? (
+                        <div className="text-xs text-muted-foreground px-2 py-1">No properties found</div>
+                      ) : (
+                        propertySearchQ.data.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
+                            onClick={() =>
+                              createLink.mutate({
+                                contactId,
+                                propertyId: p.id,
+                                dealRole: linkPropertyRole as any,
+                                source: "manual",
+                              })
+                            }
+                          >
+                            <div className="font-medium">{p.name}</div>
+                            {p.city && <div className="text-[10px] text-muted-foreground">{p.city}</div>}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkProperty(false); setLinkPropertySearch(""); }}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
+              {!linkedProperties?.length && !showLinkProperty ? (
                 <p className="text-sm text-muted-foreground italic">No linked properties</p>
               ) : (
                 <div className="space-y-2">
-                  {linkedProperties.filter((l) => l.propertyId).map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() => setLocation(`/properties/${l.propertyId}`)}
-                      className="w-full text-left border rounded-md p-2 hover:bg-muted/40"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{l.propertyName}</span>
-                        {l.dealRole && (
-                          <Badge variant="outline" className="text-[10px] capitalize">
-                            {l.dealRole.replace("_", " ")}
-                          </Badge>
+                  {linkedProperties?.filter((l) => l.propertyId).map((l) => (
+                    <div key={l.id} className="flex items-start gap-2 border rounded-md p-2">
+                      <button
+                        type="button"
+                        onClick={() => setLocation(`/properties/${l.propertyId}`)}
+                        className="flex-1 text-left min-w-0 hover:bg-muted/40 rounded"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{l.propertyName}</span>
+                          {l.dealRole && (
+                            <Badge variant="outline" className="text-[10px] capitalize">
+                              {l.dealRole.replace("_", " ")}
+                            </Badge>
+                          )}
+                        </div>
+                        {l.propertyCity && (
+                          <div className="text-xs text-muted-foreground">{l.propertyCity}</div>
                         )}
-                      </div>
-                      {l.propertyCity && (
-                        <div className="text-xs text-muted-foreground">{l.propertyCity}</div>
-                      )}
-                    </button>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteLink.mutate({ id: l.id })}
+                        className="text-muted-foreground hover:text-destructive shrink-0 mt-1"
+                        title="Remove link"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}

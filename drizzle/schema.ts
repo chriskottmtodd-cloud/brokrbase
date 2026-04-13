@@ -284,6 +284,7 @@ export const contactPropertyLinks = mysqlTable("contact_property_links", {
     "owner",
     "seller",
     "buyer",
+    "tenant",
     "buyers_broker",
     "listing_agent",
     "property_manager",

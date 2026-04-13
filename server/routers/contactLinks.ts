@@ -10,7 +10,7 @@ import {
 import { protectedProcedure, router } from "../_core/trpc";
 
 const DEAL_ROLE_ENUM = z.enum([
-  "owner", "seller", "buyer", "buyers_broker",
+  "owner", "seller", "buyer", "tenant", "buyers_broker",
   "listing_agent", "property_manager", "attorney", "lender", "other",
 ]);
 

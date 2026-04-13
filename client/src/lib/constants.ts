@@ -69,6 +69,7 @@ export const DEAL_ROLES = [
   { value: "owner", label: "Owner" },
   { value: "seller", label: "Seller" },
   { value: "buyer", label: "Buyer" },
+  { value: "tenant", label: "Tenant" },
   { value: "buyers_broker", label: "Buyer's Broker" },
   { value: "listing_agent", label: "Listing Agent" },
   { value: "property_manager", label: "Property Manager" },
