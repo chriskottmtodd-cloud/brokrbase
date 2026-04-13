@@ -87,6 +87,9 @@ export default function PropertyDetail() {
   const [showLinkContact, setShowLinkContact] = useState(false);
   const [linkContactSearch, setLinkContactSearch] = useState("");
   const [linkContactRole, setLinkContactRole] = useState("owner");
+  const [selectedLinkContact, setSelectedLinkContact] = useState<{ id: number; name: string; company?: string } | null>(null);
+  const [showCreateContact, setShowCreateContact] = useState(false);
+  const [newContactForm, setNewContactForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "" });
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -168,11 +171,14 @@ export default function PropertyDetail() {
     { enabled: showLinkContact && linkContactSearch.length >= 1 },
   );
 
+  const createNewContact = trpc.contacts.create.useMutation();
+
   const createLink = trpc.contactLinks.create.useMutation({
     onSuccess: () => {
       toast.success("Contact linked");
       setShowLinkContact(false);
       setLinkContactSearch("");
+      setSelectedLinkContact(null);
       utils.contactLinks.listForProperty.invalidate({ propertyId });
     },
     onError: (e) => toast.error(e.message),
@@ -557,57 +563,123 @@ export default function PropertyDetail() {
             <CardContent>
               {showLinkContact && (
                 <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
-                  <Select value={linkContactRole} onValueChange={setLinkContactRole}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="owner">Owner</SelectItem>
-                      <SelectItem value="tenant">Tenant</SelectItem>
-                      <SelectItem value="seller">Seller</SelectItem>
-                      <SelectItem value="buyer">Buyer</SelectItem>
-                      <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
-                      <SelectItem value="listing_agent">Listing Agent</SelectItem>
-                      <SelectItem value="property_manager">Property Manager</SelectItem>
-                      <SelectItem value="attorney">Attorney</SelectItem>
-                      <SelectItem value="lender">Lender</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    placeholder="Search contacts..."
-                    value={linkContactSearch}
-                    onChange={(e) => setLinkContactSearch(e.target.value)}
-                    className="h-8 text-xs"
-                    autoFocus
-                  />
-                  {linkContactSearch.length >= 1 && (
-                    <div className="max-h-36 overflow-y-auto border rounded">
-                      {!contactSearchQ.data?.length ? (
-                        <div className="text-xs text-muted-foreground px-2 py-1">No contacts found</div>
-                      ) : (
-                        contactSearchQ.data.map((c) => (
+                  {!selectedLinkContact && !showCreateContact && (
+                    <>
+                      <Input
+                        placeholder="Search contacts..."
+                        value={linkContactSearch}
+                        onChange={(e) => setLinkContactSearch(e.target.value)}
+                        className="h-8 text-xs"
+                        autoFocus
+                      />
+                      {linkContactSearch.length >= 1 && (
+                        <div className="max-h-36 overflow-y-auto border rounded">
+                          {!contactSearchQ.data?.length ? (
+                            <div className="text-xs text-muted-foreground px-2 py-1">
+                              No contacts found
+                            </div>
+                          ) : (
+                            contactSearchQ.data.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
+                                onClick={() => setSelectedLinkContact({ id: c.id, name: `${c.firstName} ${c.lastName}`, company: c.company ?? undefined })}
+                              >
+                                <div className="font-medium">{c.firstName} {c.lastName}</div>
+                                {c.company && <div className="text-[10px] text-muted-foreground">{c.company}</div>}
+                              </button>
+                            ))
+                          )}
                           <button
-                            key={c.id}
                             type="button"
-                            className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
-                            onClick={() =>
-                              createLink.mutate({
-                                contactId: c.id,
-                                propertyId,
-                                dealRole: linkContactRole as any,
-                                source: "manual",
-                              })
-                            }
+                            className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted text-primary font-medium"
+                            onClick={() => setShowCreateContact(true)}
                           >
-                            <div className="font-medium">{c.firstName} {c.lastName}</div>
-                            {c.company && <div className="text-[10px] text-muted-foreground">{c.company}</div>}
+                            + Create new contact
                           </button>
-                        ))
+                        </div>
                       )}
+                    </>
+                  )}
+                  {showCreateContact && !selectedLinkContact && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold">New Contact</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="First name" value={newContactForm.firstName} onChange={(e) => setNewContactForm({ ...newContactForm, firstName: e.target.value })} className="h-7 text-xs" autoFocus />
+                        <Input placeholder="Last name" value={newContactForm.lastName} onChange={(e) => setNewContactForm({ ...newContactForm, lastName: e.target.value })} className="h-7 text-xs" />
+                      </div>
+                      <Input placeholder="Email" value={newContactForm.email} onChange={(e) => setNewContactForm({ ...newContactForm, email: e.target.value })} className="h-7 text-xs" />
+                      <Input placeholder="Phone" value={newContactForm.phone} onChange={(e) => setNewContactForm({ ...newContactForm, phone: e.target.value })} className="h-7 text-xs" />
+                      <Input placeholder="Company" value={newContactForm.company} onChange={(e) => setNewContactForm({ ...newContactForm, company: e.target.value })} className="h-7 text-xs" />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={!newContactForm.firstName || !newContactForm.lastName || createNewContact.isPending}
+                          onClick={async () => {
+                            const result = await createNewContact.mutateAsync({
+                              firstName: newContactForm.firstName,
+                              lastName: newContactForm.lastName,
+                              email: newContactForm.email || undefined,
+                              phone: newContactForm.phone || undefined,
+                              company: newContactForm.company || undefined,
+                            });
+                            const name = `${newContactForm.firstName} ${newContactForm.lastName}`;
+                            setSelectedLinkContact({ id: result.id, name, company: newContactForm.company || undefined });
+                            setShowCreateContact(false);
+                            setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
+                            utils.contacts.list.invalidate();
+                          }}
+                        >
+                          {createNewContact.isPending ? "Creating..." : "Create"}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCreateContact(false)}>Back</Button>
+                      </div>
                     </div>
                   )}
-                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkContact(false); setLinkContactSearch(""); }}>
+                  {selectedLinkContact && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs font-semibold flex-1">{selectedLinkContact.name}</div>
+                        <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => { setSelectedLinkContact(null); setLinkContactSearch(""); }}>Change</button>
+                      </div>
+                      {selectedLinkContact.company && <div className="text-[10px] text-muted-foreground">{selectedLinkContact.company}</div>}
+                      <Select value={linkContactRole} onValueChange={setLinkContactRole}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="owner">Owner</SelectItem>
+                          <SelectItem value="tenant">Tenant</SelectItem>
+                          <SelectItem value="seller">Seller</SelectItem>
+                          <SelectItem value="buyer">Buyer</SelectItem>
+                          <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
+                          <SelectItem value="listing_agent">Listing Agent</SelectItem>
+                          <SelectItem value="property_manager">Property Manager</SelectItem>
+                          <SelectItem value="attorney">Attorney</SelectItem>
+                          <SelectItem value="lender">Lender</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs w-full"
+                        disabled={createLink.isPending}
+                        onClick={() =>
+                          createLink.mutate({
+                            contactId: selectedLinkContact.id,
+                            propertyId,
+                            dealRole: linkContactRole as any,
+                            source: "manual",
+                          })
+                        }
+                      >
+                        {createLink.isPending ? "Linking..." : `Link as ${linkContactRole.replace("_", " ")}`}
+                      </Button>
+                    </div>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkContact(false); setLinkContactSearch(""); setSelectedLinkContact(null); setShowCreateContact(false); }}>
                     Cancel
                   </Button>
                 </div>

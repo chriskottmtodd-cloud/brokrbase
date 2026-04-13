@@ -80,6 +80,7 @@ export default function ContactDetail() {
   const [showLinkProperty, setShowLinkProperty] = useState(false);
   const [linkPropertySearch, setLinkPropertySearch] = useState("");
   const [linkPropertyRole, setLinkPropertyRole] = useState("owner");
+  const [selectedLinkProperty, setSelectedLinkProperty] = useState<{ id: number; name: string; city?: string } | null>(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -161,6 +162,7 @@ export default function ContactDetail() {
       toast.success("Property linked");
       setShowLinkProperty(false);
       setLinkPropertySearch("");
+      setSelectedLinkProperty(null);
       utils.contactLinks.listForContact.invalidate({ contactId });
     },
     onError: (e) => toast.error(e.message),
@@ -465,57 +467,78 @@ export default function ContactDetail() {
             <CardContent>
               {showLinkProperty && (
                 <div className="space-y-2 p-2 border rounded-md bg-muted/30 mb-3">
-                  <Select value={linkPropertyRole} onValueChange={setLinkPropertyRole}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="owner">Owner</SelectItem>
-                      <SelectItem value="tenant">Tenant</SelectItem>
-                      <SelectItem value="seller">Seller</SelectItem>
-                      <SelectItem value="buyer">Buyer</SelectItem>
-                      <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
-                      <SelectItem value="listing_agent">Listing Agent</SelectItem>
-                      <SelectItem value="property_manager">Property Manager</SelectItem>
-                      <SelectItem value="attorney">Attorney</SelectItem>
-                      <SelectItem value="lender">Lender</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    placeholder="Search properties..."
-                    value={linkPropertySearch}
-                    onChange={(e) => setLinkPropertySearch(e.target.value)}
-                    className="h-8 text-xs"
-                    autoFocus
-                  />
-                  {linkPropertySearch.length >= 1 && (
-                    <div className="max-h-36 overflow-y-auto border rounded">
-                      {!propertySearchQ.data?.length ? (
-                        <div className="text-xs text-muted-foreground px-2 py-1">No properties found</div>
-                      ) : (
-                        propertySearchQ.data.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
-                            onClick={() =>
-                              createLink.mutate({
-                                contactId,
-                                propertyId: p.id,
-                                dealRole: linkPropertyRole as any,
-                                source: "manual",
-                              })
-                            }
-                          >
-                            <div className="font-medium">{p.name}</div>
-                            {p.city && <div className="text-[10px] text-muted-foreground">{p.city}</div>}
-                          </button>
-                        ))
+                  {!selectedLinkProperty && (
+                    <>
+                      <Input
+                        placeholder="Search properties..."
+                        value={linkPropertySearch}
+                        onChange={(e) => setLinkPropertySearch(e.target.value)}
+                        className="h-8 text-xs"
+                        autoFocus
+                      />
+                      {linkPropertySearch.length >= 1 && (
+                        <div className="max-h-36 overflow-y-auto border rounded">
+                          {!propertySearchQ.data?.length ? (
+                            <div className="text-xs text-muted-foreground px-2 py-1">No properties found</div>
+                          ) : (
+                            propertySearchQ.data.map((p) => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                className="block text-xs text-left w-full px-2 py-1.5 hover:bg-muted"
+                                onClick={() => setSelectedLinkProperty({ id: p.id, name: p.name, city: p.city ?? undefined })}
+                              >
+                                <div className="font-medium">{p.name}</div>
+                                {p.city && <div className="text-[10px] text-muted-foreground">{p.city}</div>}
+                              </button>
+                            ))
+                          )}
+                        </div>
                       )}
+                    </>
+                  )}
+                  {selectedLinkProperty && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs font-semibold flex-1">{selectedLinkProperty.name}</div>
+                        <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground" onClick={() => { setSelectedLinkProperty(null); setLinkPropertySearch(""); }}>Change</button>
+                      </div>
+                      {selectedLinkProperty.city && <div className="text-[10px] text-muted-foreground">{selectedLinkProperty.city}</div>}
+                      <Select value={linkPropertyRole} onValueChange={setLinkPropertyRole}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="owner">Owner</SelectItem>
+                          <SelectItem value="tenant">Tenant</SelectItem>
+                          <SelectItem value="seller">Seller</SelectItem>
+                          <SelectItem value="buyer">Buyer</SelectItem>
+                          <SelectItem value="buyers_broker">Buyer's Broker</SelectItem>
+                          <SelectItem value="listing_agent">Listing Agent</SelectItem>
+                          <SelectItem value="property_manager">Property Manager</SelectItem>
+                          <SelectItem value="attorney">Attorney</SelectItem>
+                          <SelectItem value="lender">Lender</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs w-full"
+                        disabled={createLink.isPending}
+                        onClick={() =>
+                          createLink.mutate({
+                            contactId,
+                            propertyId: selectedLinkProperty.id,
+                            dealRole: linkPropertyRole as any,
+                            source: "manual",
+                          })
+                        }
+                      >
+                        {createLink.isPending ? "Linking..." : `Link as ${linkPropertyRole.replace("_", " ")}`}
+                      </Button>
                     </div>
                   )}
-                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkProperty(false); setLinkPropertySearch(""); }}>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setShowLinkProperty(false); setLinkPropertySearch(""); setSelectedLinkProperty(null); }}>
                     Cancel
                   </Button>
                 </div>
