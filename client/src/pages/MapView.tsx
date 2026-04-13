@@ -490,7 +490,28 @@ export default function MapView() {
           marker.addListener("click", () => {
             setSelectedProperty(p);
           });
+          marker.addListener("dragstart", () => {
+            // Make pin bigger and shift up above the finger while dragging
+            marker!.setIcon({
+              path: maps.SymbolPath.CIRCLE,
+              scale: 12,
+              fillColor: color,
+              fillOpacity: 1,
+              strokeColor: "#ffffff",
+              strokeWeight: 3,
+              anchor: new maps.Point(0, 20),
+            });
+          });
           marker.addListener("dragend", () => {
+            // Restore normal size
+            marker!.setIcon({
+              path: maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: color,
+              fillOpacity: 1,
+              strokeColor: "#ffffff",
+              strokeWeight: 2,
+            });
             const pos = marker!.getPosition();
             if (!pos) return;
             updateProperty.mutateAsync({
