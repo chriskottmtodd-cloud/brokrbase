@@ -8,7 +8,7 @@ import {
   resolvePropertyMention,
   type ResolvedEntity,
 } from "../_core/entityResolution";
-import { createActivity, getContacts, getProperties, getUserById, updateActivity } from "../db";
+import { createActivity, getContacts, getContactsForProperty, getProperties, getUserById, updateActivity } from "../db";
 import { parseLlmJson } from "../lib/parseLlmJson";
 
 // ─── LLM extraction schema (names, not IDs) ─────────────────────────────
@@ -17,11 +17,11 @@ const EXTRACTION_PROMPT = `You are analyzing a commercial real estate broker's v
 Extract the following from the transcript:
 
 1. summary: 1-2 sentence summary of what was discussed.
-2. keyInsights: bullet points (max 5) of important facts (cap rates, prices, timelines, motivations).
+2. keyInsights: bullet points (max 5) of important facts. Include any deal details mentioned: prices, cap rates, timelines, motivations, lease terms, asking prices, status changes, etc. These are the key takeaways.
 3. people: each mentioned person:
    - name (full name as spoken)
    - company (if mentioned)
-   - role: "owner" | "buyer" | "broker" | "lender" | "property_manager" | "other"
+   - role: "owner" | "buyer" | "broker" | "lender" | "tenant" | "property_manager" | "other"
    - context: why they were mentioned
 4. properties: each mentioned property:
    - name (as spoken)
@@ -37,16 +37,13 @@ Extract the following from the transcript:
    - priority: "urgent" | "high" | "medium" | "low"
    - type: "call" | "email" | "meeting" | "follow_up" | "research" | "other"
    - dueDaysFromNow: integer
-6. propertyUpdates: data changes about a property:
-   - propertyName (must match a "properties" entry)
-   - field: e.g. "askingPrice" | "status" | "notes"
-   - newValue: string
-   - reason
+6. propertyUpdates: always return an empty array []. Do NOT suggest property field changes.
 7. contactLinks: new relationships between people and properties:
    - personName (must match a "people" entry)
    - propertyName (must match a "properties" entry)
-   - relationship: "owner" | "buyer" | "seller" | "broker" | "property_manager"
+   - relationship: "owner" | "buyer" | "seller" | "broker" | "tenant" | "property_manager"
    - reason
+   - ONLY include links that seem NEW. If someone is just mentioned in passing about a property they likely already work with, do NOT create a link.
 
 IMPORTANT: Return NAMES as spoken, not database IDs. Resolution to records happens server-side.
 If a field is unknown, omit it or pass an empty string. Return strict JSON.`;
@@ -333,7 +330,8 @@ export const voiceMemoRouter = router({
         }))
         .filter((u): u is typeof u & { property: ResolvedEntity } => !!u.property);
 
-      const contactLinks = extraction.contactLinks
+      // Filter out contact links that already exist in the DB
+      const allContactLinks = extraction.contactLinks
         .map((l) => ({
           contact: refForPerson(l.personName),
           property: refForProperty(l.propertyName),
@@ -342,8 +340,20 @@ export const voiceMemoRouter = router({
         }))
         .filter(
           (l): l is typeof l & { contact: ResolvedEntity; property: ResolvedEntity } =>
-            !!l.contact && !!l.property,
+            !!l.contact && !!l.property && !!l.contact.id && !!l.property.id,
         );
+
+      // Check which links already exist
+      const contactLinks: typeof allContactLinks = [];
+      for (const l of allContactLinks) {
+        try {
+          const existing = await getContactsForProperty(l.property.id!, userId);
+          const alreadyLinked = existing.some((e) => e.contactId === l.contact.id);
+          if (!alreadyLinked) contactLinks.push(l);
+        } catch {
+          contactLinks.push(l); // If check fails, include it and let user decide
+        }
+      }
 
       return {
         transcript,
