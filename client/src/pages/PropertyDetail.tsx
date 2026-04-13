@@ -52,6 +52,7 @@ import {
   X,
 } from "lucide-react";
 import { ActivityDetailModal } from "@/components/ActivityDetailModal";
+import { DuplicateWarning } from "@/components/DuplicateWarning";
 import { ALL_PROPERTY_TYPES, getEnabledTypes, getTypeColor, parsePreferences } from "./Settings";
 
 const activityIcons: Record<string, React.ReactNode> = {
@@ -619,6 +620,20 @@ export default function PropertyDetail() {
                       <Input placeholder="Email" value={newContactForm.email} onChange={(e) => setNewContactForm({ ...newContactForm, email: e.target.value })} className="h-7 text-xs" />
                       <Input placeholder="Phone" value={newContactForm.phone} onChange={(e) => setNewContactForm({ ...newContactForm, phone: e.target.value })} className="h-7 text-xs" />
                       <Input placeholder="Company" value={newContactForm.company} onChange={(e) => setNewContactForm({ ...newContactForm, company: e.target.value })} className="h-7 text-xs" />
+                      {newContactForm.firstName && newContactForm.lastName && (
+                        <DuplicateWarning
+                          firstName={newContactForm.firstName}
+                          lastName={newContactForm.lastName}
+                          email={newContactForm.email || undefined}
+                          phone={newContactForm.phone || undefined}
+                          onUseExisting={(existing) => {
+                            setSelectedLinkContact({ id: existing.id, name: `${existing.firstName} ${existing.lastName}` });
+                            setShowCreateContact(false);
+                            setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
+                          }}
+                          onCreateAnyway={() => {}}
+                        />
+                      )}
                       <div className="flex gap-2">
                         <Button
                           size="sm"

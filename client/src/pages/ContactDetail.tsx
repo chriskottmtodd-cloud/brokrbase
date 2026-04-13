@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   Building2,
   Calendar,
@@ -91,6 +92,10 @@ export default function ContactDetail() {
   const { data: contact, isLoading } = trpc.contacts.byId.useQuery(
     { id: contactId },
     { enabled: !!contactId },
+  );
+  const { data: duplicates } = trpc.contacts.checkDuplicate.useQuery(
+    { firstName: contact?.firstName ?? "", lastName: contact?.lastName ?? "", email: contact?.email ?? undefined, phone: contact?.phone ?? undefined },
+    { enabled: !!contact },
   );
   const { data: activities, refetch: refetchActivities } = trpc.activities.list.useQuery(
     { contactId, limit: 20 },
@@ -713,6 +718,34 @@ export default function ContactDetail() {
               )}
             </CardContent>
           </Card>
+          {/* Possible duplicates */}
+          {duplicates && duplicates.filter((d) => d.id !== contactId).length > 0 && (
+            <Card className="border-red-200">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold text-red-600 uppercase tracking-wide flex items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Possible Duplicates
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {duplicates.filter((d) => d.id !== contactId).map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setLocation(`/contacts/${d.id}`)}
+                      className="w-full text-left border rounded-md p-2 hover:bg-muted/40"
+                    >
+                      <div className="text-sm font-medium">{d.firstName} {d.lastName}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[d.company, d.email, d.phone].filter(Boolean).join(" · ")}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

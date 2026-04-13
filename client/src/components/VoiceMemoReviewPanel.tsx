@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Edit2, Plus, Search, UserPlus } from "lucide-react";
+import { DuplicateWarning } from "./DuplicateWarning";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -450,6 +451,28 @@ export function VoiceMemoReviewPanel({
             onChange={(e) => setNewContactForm({ ...newContactForm, company: e.target.value })}
             className="h-7 text-xs"
           />
+          {newContactForm.firstName && newContactForm.lastName && (
+            <DuplicateWarning
+              firstName={newContactForm.firstName}
+              lastName={newContactForm.lastName}
+              email={newContactForm.email || undefined}
+              phone={newContactForm.phone || undefined}
+              onUseExisting={(existing) => {
+                const fullName = `${existing.firstName} ${existing.lastName}`;
+                const next = tasks.map((t) => {
+                  if (!t.contact?.id || t.contact.confidence === "none" || t.contact.confidence === "low") {
+                    return { ...t, contact: { id: existing.id, name: fullName, confidence: "high" as Confidence, matchMethod: "duplicate_pick", candidateCount: 1 } };
+                  }
+                  return t;
+                });
+                setTasks(next);
+                setShowCreateContact(false);
+                setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
+                toast.success(`Using existing contact: ${fullName}`);
+              }}
+              onCreateAnyway={() => {/* let them click Create below */}}
+            />
+          )}
           <div className="flex gap-2">
             <Button
               size="sm"
