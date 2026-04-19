@@ -16,20 +16,38 @@ const EXTRACTION_PROMPT = `You are analyzing a commercial real estate broker's v
 
 Extract the following from the transcript:
 
-1. summary: 1-2 sentence summary of what was discussed.
-2. keyInsights: bullet points (max 5) of important facts. Include any deal details mentioned: prices, cap rates, timelines, motivations, lease terms, asking prices, status changes, etc. These are the key takeaways.
-3. people: each mentioned person:
+1. activityType: What kind of interaction was this? Detect from context:
+   - "call" — "I just called...", "got off the phone with...", "talked to..."
+   - "meeting" — "I just met with...", "had a meeting...", "sat down with..."
+   - "voicemail" — "left a voicemail...", "left a message for..."
+   - "email" — "sent an email...", "emailed..."
+   - "text" — "texted...", "sent a text..."
+   - "note" — default. Just thinking, observing, or general notes.
+
+2. command: Did the user give a direct command? Detect intent:
+   - "new_contact" — "new contact", "add a contact", "this is someone new", "haven't met before"
+   - "create_task" — "make a task", "remind me to", "create a task", "I need to..."
+   - "log_activity" — "log a call", "log this", "record this meeting"
+   - null — no explicit command detected (most common)
+
+3. summary: 1-2 sentence summary of what was discussed.
+4. keyInsights: bullet points (max 5) of important facts. Include any deal details mentioned: prices, cap rates, timelines, motivations, lease terms, asking prices, status changes, etc.
+5. people: each mentioned person:
    - name (full name as spoken)
    - company (if mentioned)
+   - phone (if mentioned)
+   - email (if mentioned)
    - role: "owner" | "buyer" | "broker" | "lender" | "tenant" | "property_manager" | "other"
    - context: why they were mentioned
-4. properties: each mentioned property:
+   - isNewContact: true if the speaker indicates this is a NEW person they haven't tracked before ("new contact", "first time talking to", "haven't met")
+6. properties: each mentioned property:
    - name (as spoken)
    - city (if mentioned)
    - address (if mentioned)
    - unitCount (if mentioned, integer)
    - context
-5. newTasks: follow-ups to create:
+7. newTasks: follow-ups to create. Be AGGRESSIVE — any future verb is a task:
+   - "I need to...", "remind me to...", "follow up", "shoot him an email", "send over..."
    - title
    - description
    - personName (the person it relates to, if any — must match a "people" entry)
@@ -37,8 +55,8 @@ Extract the following from the transcript:
    - priority: "urgent" | "high" | "medium" | "low"
    - type: "call" | "email" | "meeting" | "follow_up" | "research" | "other"
    - dueDaysFromNow: integer
-6. propertyUpdates: always return an empty array []. Do NOT suggest property field changes.
-7. contactLinks: new relationships between people and properties:
+8. propertyUpdates: always return an empty array []. Do NOT suggest property field changes.
+9. contactLinks: new relationships between people and properties:
    - personName (must match a "people" entry)
    - propertyName (must match a "properties" entry)
    - relationship: "owner" | "buyer" | "seller" | "broker" | "tenant" | "property_manager"
@@ -51,6 +69,8 @@ If a field is unknown, omit it or pass an empty string. Return strict JSON.`;
 const EXTRACTION_SCHEMA = {
   type: "object",
   properties: {
+    activityType: { type: "string" },
+    command: { type: ["string", "null"] },
     summary: { type: "string" },
     keyInsights: { type: "array", items: { type: "string" } },
     people: {
@@ -60,10 +80,13 @@ const EXTRACTION_SCHEMA = {
         properties: {
           name: { type: "string" },
           company: { type: "string" },
+          phone: { type: "string" },
+          email: { type: "string" },
           role: { type: "string" },
           context: { type: "string" },
+          isNewContact: { type: "boolean" },
         },
-        required: ["name", "company", "role", "context"],
+        required: ["name", "company", "phone", "email", "role", "context", "isNewContact"],
         additionalProperties: false,
       },
     },
@@ -129,6 +152,8 @@ const EXTRACTION_SCHEMA = {
     },
   },
   required: [
+    "activityType",
+    "command",
     "summary",
     "keyInsights",
     "people",
@@ -141,9 +166,11 @@ const EXTRACTION_SCHEMA = {
 } as const;
 
 interface Extraction {
+  activityType: string;
+  command: string | null;
   summary: string;
   keyInsights: string[];
-  people: Array<{ name: string; company: string; role: string; context: string }>;
+  people: Array<{ name: string; company: string; phone: string; email: string; role: string; context: string; isNewContact: boolean }>;
   properties: Array<{ name: string; city: string; address: string; unitCount: number; context: string }>;
   newTasks: Array<{
     title: string;
@@ -225,19 +252,7 @@ export const voiceMemoRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Empty transcript" });
       }
 
-      // 4. Activity record
-      const activityResult = await createActivity({
-        userId,
-        type: "note",
-        direction: "outbound",
-        subject: "Voice Memo",
-        notes: transcript,
-        duration: input.durationSeconds ? Math.max(1, Math.round(input.durationSeconds / 60)) : undefined,
-        occurredAt: new Date(),
-      });
-      const activityId = (activityResult as unknown as Array<{ insertId: number }>)[0]?.insertId ?? null;
-
-      // 5. LLM extraction — names, not IDs
+      // 4. LLM extraction (run before activity creation to get activityType)
       const llm = await invokeLLM({
         messages: [
           { role: "system", content: EXTRACTION_PROMPT },
@@ -264,6 +279,24 @@ export const voiceMemoRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "AI returned invalid JSON" });
       }
 
+      // 5. Activity record (uses detected activityType)
+      const VALID_ACTIVITY_TYPES = ["call", "email", "meeting", "note", "text", "voicemail"] as const;
+      type ActivityType = (typeof VALID_ACTIVITY_TYPES)[number];
+      const rawType = extraction.activityType || "note";
+      const detectedType: ActivityType = (VALID_ACTIVITY_TYPES as readonly string[]).includes(rawType)
+        ? (rawType as ActivityType)
+        : "note";
+      const activityResult = await createActivity({
+        userId,
+        type: detectedType,
+        direction: "outbound",
+        subject: detectedType === "note" ? "Voice Memo" : `Voice Memo (${detectedType})`,
+        notes: transcript,
+        duration: input.durationSeconds ? Math.max(1, Math.round(input.durationSeconds / 60)) : undefined,
+        occurredAt: new Date(),
+      });
+      const activityId = (activityResult as unknown as Array<{ insertId: number }>)[0]?.insertId ?? null;
+
       // 6. Resolve mentions concurrently
       const peopleResolved = new Map<string, ResolvedEntity>();
       const propsResolved = new Map<string, ResolvedEntity>();
@@ -273,6 +306,8 @@ export const voiceMemoRouter = router({
           const r = await resolveContactMention(userId, {
             name: p.name,
             company: p.company || undefined,
+            email: p.email || undefined,
+            phone: p.phone || undefined,
             context: p.context,
           });
           peopleResolved.set(p.name, r);
@@ -351,18 +386,66 @@ export const voiceMemoRouter = router({
           const alreadyLinked = existing.some((e) => e.contactId === l.contact.id);
           if (!alreadyLinked) contactLinks.push(l);
         } catch {
-          contactLinks.push(l); // If check fails, include it and let user decide
+          contactLinks.push(l);
         }
       }
+
+      // Build new contact suggestions from people marked as isNewContact or unmatched
+      const newContactSuggestions = extraction.people
+        .filter((p) => {
+          const resolved = peopleResolved.get(p.name);
+          return p.isNewContact || !resolved?.id || resolved.confidence === "none";
+        })
+        .map((p) => {
+          const parts = p.name.split(/\s+/);
+          return {
+            extractedName: p.name,
+            firstName: parts[0] || "",
+            lastName: parts.slice(1).join(" ") || "",
+            phone: p.phone || "",
+            email: p.email || "",
+            company: p.company || "",
+            role: p.role || "",
+            context: p.context || "",
+          };
+        });
 
       return {
         transcript,
         summary: extraction.summary,
         keyInsights: extraction.keyInsights,
         activityId,
+        activityType: detectedType,
+        command: extraction.command || null,
         newTasks,
         propertyUpdates,
         contactLinks,
+        newContactSuggestions,
+        resolvedPeople: extraction.people.map((p) => {
+          const r = peopleResolved.get(p.name);
+          return {
+            extractedName: p.name,
+            id: r?.id ?? null,
+            name: r?.name ?? p.name,
+            confidence: r?.confidence ?? "none",
+            matchMethod: r?.matchMethod ?? "unmatched",
+            candidateCount: r?.candidateCount ?? 0,
+            topCandidates: r?.topCandidates,
+            role: p.role,
+          };
+        }),
+        resolvedProperties: extraction.properties.map((p) => {
+          const r = propsResolved.get(p.name);
+          return {
+            extractedName: p.name,
+            id: r?.id ?? null,
+            name: r?.name ?? p.name,
+            confidence: r?.confidence ?? "none",
+            matchMethod: r?.matchMethod ?? "unmatched",
+            candidateCount: r?.candidateCount ?? 0,
+            topCandidates: r?.topCandidates,
+          };
+        }),
       };
     }),
 });

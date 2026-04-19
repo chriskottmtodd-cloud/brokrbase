@@ -152,13 +152,25 @@ export async function resolveContactMention(
     }
 
     if (byExact.length > 1) {
+      // Sort by most recently contacted (recency wins for duplicate names)
+      const sorted = [...byExact].sort((a, b) => {
+        const aTime = Math.max(
+          a.lastContactedAt ? new Date(a.lastContactedAt).getTime() : 0,
+          a.updatedAt ? new Date(a.updatedAt).getTime() : 0,
+        );
+        const bTime = Math.max(
+          b.lastContactedAt ? new Date(b.lastContactedAt).getTime() : 0,
+          b.updatedAt ? new Date(b.updatedAt).getTime() : 0,
+        );
+        return bTime - aTime;
+      });
       return {
-        id: byExact[0].id,
-        name: `${byExact[0].firstName} ${byExact[0].lastName}`,
+        id: sorted[0].id,
+        name: `${sorted[0].firstName} ${sorted[0].lastName}`,
         confidence: "medium",
         matchMethod: "exact_name",
-        candidateCount: byExact.length,
-        topCandidates: byExact.map((c) => ({
+        candidateCount: sorted.length,
+        topCandidates: sorted.map((c) => ({
           id: c.id,
           name: `${c.firstName} ${c.lastName}${c.company ? ` (${c.company})` : ""}`,
           score: 100,
@@ -192,6 +204,7 @@ export async function resolveContactMention(
 
     if (byFirst.length > 1) {
       const co = mention.company?.toLowerCase() || "";
+      const now = Date.now();
       const scored = byFirst
         .map((c) => {
           const cLast = (c.lastName || "").toLowerCase();
@@ -200,6 +213,17 @@ export async function resolveContactMention(
           else if (lastName && cLast.startsWith(lastName)) score = 85;
           else if (lastName && cLast.includes(lastName)) score = 70;
           if (co && (c.company || "").toLowerCase().includes(co)) score += 10;
+          // Recency bonus — tiebreaker for same-name contacts
+          const lastTime = Math.max(
+            c.lastContactedAt ? new Date(c.lastContactedAt).getTime() : 0,
+            c.updatedAt ? new Date(c.updatedAt).getTime() : 0,
+          );
+          if (lastTime > 0) {
+            const daysSince = (now - lastTime) / 86400000;
+            if (daysSince <= 7) score += 5;
+            else if (daysSince <= 30) score += 3;
+            else if (daysSince <= 90) score += 1;
+          }
           return { c, score };
         })
         .sort((a, b) => b.score - a.score);

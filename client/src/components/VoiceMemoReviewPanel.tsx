@@ -1,12 +1,20 @@
-import { useState } from "react";
-import { CheckCircle2, Edit2, Plus, Search, UserPlus, X } from "lucide-react";
-import { DuplicateWarning } from "./DuplicateWarning";
+import { useState, useCallback } from "react";
+import { UserPlus, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { ActionCardStack } from "@/components/ActionCardStack";
+import {
+  normalizeVoiceMemoActions,
+  type ActionItem,
+  type TaskAction,
+  type PropertyUpdateAction,
+  type ContactLinkAction,
+  type NewContactAction,
+  type ActivityAction,
+} from "@/lib/actionTypes";
 
 type Confidence = "high" | "medium" | "low" | "none";
 
@@ -24,6 +32,8 @@ export interface VoiceMemoResult {
   summary: string;
   keyInsights: string[];
   activityId: number | null;
+  activityType?: string;
+  command?: string | null;
   newTasks: Array<{
     title: string;
     description: string;
@@ -45,20 +55,35 @@ export interface VoiceMemoResult {
     relationship: string;
     reason: string;
   }>;
-}
-
-const PRIORITY_VALUES = ["urgent", "high", "medium", "low"] as const;
-const TYPE_VALUES = ["call", "email", "meeting", "follow_up", "research", "other"] as const;
-
-function clampPriority(p: string): (typeof PRIORITY_VALUES)[number] {
-  return (PRIORITY_VALUES as readonly string[]).includes(p)
-    ? (p as (typeof PRIORITY_VALUES)[number])
-    : "medium";
-}
-function clampType(t: string): (typeof TYPE_VALUES)[number] {
-  return (TYPE_VALUES as readonly string[]).includes(t)
-    ? (t as (typeof TYPE_VALUES)[number])
-    : "follow_up";
+  newContactSuggestions?: Array<{
+    extractedName: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    email: string;
+    company: string;
+    role: string;
+    context: string;
+  }>;
+  resolvedPeople?: Array<{
+    extractedName: string;
+    id: number | null;
+    name: string;
+    confidence: Confidence;
+    matchMethod: string;
+    candidateCount: number;
+    topCandidates?: Array<{ id: number; name: string; score: number }>;
+    role: string;
+  }>;
+  resolvedProperties?: Array<{
+    extractedName: string;
+    id: number | null;
+    name: string;
+    confidence: Confidence;
+    matchMethod: string;
+    candidateCount: number;
+    topCandidates?: Array<{ id: number; name: string; score: number }>;
+  }>;
 }
 
 const ROLE_TO_DEAL_ROLE: Record<
@@ -76,22 +101,23 @@ const ROLE_TO_DEAL_ROLE: Record<
   lender: "lender",
 };
 
-function emptyRef(type: "contact" | "property"): ResolvedRef {
-  return {
-    id: null,
-    name: type === "contact" ? "(no contact)" : "(no property)",
-    confidence: "none",
-    matchMethod: "unmatched",
-    candidateCount: 0,
-  };
-}
-
 const confidenceColors: Record<Confidence, string> = {
   high: "bg-green-100 text-green-800 border-green-200",
   medium: "bg-yellow-100 text-yellow-900 border-yellow-200",
   low: "bg-red-100 text-red-800 border-red-200",
   none: "bg-gray-100 text-gray-600 border-gray-200",
 };
+
+function clampPriority(p: string): "urgent" | "high" | "medium" | "low" {
+  return (["urgent", "high", "medium", "low"] as const).includes(p as any)
+    ? (p as "urgent" | "high" | "medium" | "low")
+    : "medium";
+}
+function clampType(t: string): "call" | "email" | "meeting" | "follow_up" | "research" | "other" {
+  return (["call", "email", "meeting", "follow_up", "research", "other"] as const).includes(t as any)
+    ? (t as "call" | "email" | "meeting" | "follow_up" | "research" | "other")
+    : "follow_up";
+}
 
 export function VoiceMemoReviewPanel({
   data,
@@ -100,153 +126,157 @@ export function VoiceMemoReviewPanel({
   data: VoiceMemoResult;
   onDone: () => void;
 }) {
-  // Mutable copy of refs so users can pick alternatives
-  const [tasks, setTasks] = useState(() => data.newTasks.map((t) => ({ ...t })));
-  const [updates, setUpdates] = useState(() => data.propertyUpdates.map((u) => ({ ...u })));
-  const [links, setLinks] = useState(() => data.contactLinks.map((l) => ({ ...l })));
-
-  // Find the primary detected contact for pending task lookup
-  const detectedContactId = (() => {
-    for (const t of data.newTasks) {
-      if (t.contact?.id && (t.contact.confidence === "high" || t.contact.confidence === "medium")) return t.contact.id;
-    }
-    for (const l of data.contactLinks) {
-      if (l.contact?.id && (l.contact.confidence === "high" || l.contact.confidence === "medium")) return l.contact.id;
-    }
-    return null;
-  })();
-  const detectedContactName = (() => {
-    for (const t of data.newTasks) {
-      if (t.contact?.id === detectedContactId) return t.contact?.name;
-    }
-    for (const l of data.contactLinks) {
-      if (l.contact?.id === detectedContactId) return l.contact?.name;
-    }
-    return null;
-  })();
-
-  // Pending tasks for detected contact
-  const pendingTasksQuery = trpc.tasks.list.useQuery(
-    { contactId: detectedContactId!, status: "pending" },
-    { enabled: !!detectedContactId },
+  // ActionCard items (replaces old checkboxes)
+  const [actionItems, setActionItems] = useState<ActionItem[]>(() =>
+    normalizeVoiceMemoActions(data),
   );
-  const [completedTaskIds, setCompletedTaskIds] = useState<Set<number>>(new Set());
-  const [confirmingPendingId, setConfirmingPendingId] = useState<number | null>(null);
-  const completeTaskMut = trpc.tasks.update.useMutation();
 
-  const autoCheck = (r?: ResolvedRef) =>
-    !r || r.confidence === "high" || r.confidence === "medium";
+  // Primary contact + property
+  const initialContact = data.resolvedPeople?.[0] ?? null;
+  const initialProperty = data.resolvedProperties?.[0] ?? null;
+  const newContactData = data.newContactSuggestions?.[0] ?? null;
 
-  const [selTasks, setSelTasks] = useState<Set<number>>(
-    () => new Set(tasks.map((_, i) => i).filter((i) => autoCheck(tasks[i].contact) && autoCheck(tasks[i].property))),
-  );
-  const [selUpdates, setSelUpdates] = useState<Set<number>>(
-    () => new Set(updates.map((_, i) => i).filter((i) => updates[i].property.confidence !== "none" && updates[i].property.confidence !== "low")),
-  );
-  const [selLinks, setSelLinks] = useState<Set<number>>(
-    () =>
-      new Set(
-        links
-          .map((_, i) => i)
-          .filter(
-            (i) =>
-              autoCheck(links[i].contact) &&
-              autoCheck(links[i].property) &&
-              links[i].contact.confidence !== "low" &&
-              links[i].property.confidence !== "low",
-          ),
-      ),
-  );
+  const [pickedContact, setPickedContact] = useState<ResolvedRef | null>(initialContact);
+  const [pickedProperty, setPickedProperty] = useState<ResolvedRef | null>(initialProperty);
+  const [showContactSearch, setShowContactSearch] = useState(false);
+  const [showPropertySearch, setShowPropertySearch] = useState(false);
+  const [showNewContactForm, setShowNewContactForm] = useState(!initialContact && !!newContactData);
+  const [newContact, setNewContact] = useState({
+    firstName: newContactData?.firstName ?? "",
+    lastName: newContactData?.lastName ?? "",
+    phone: newContactData?.phone ?? "",
+    email: newContactData?.email ?? "",
+    company: newContactData?.company ?? "",
+  });
+
+  const [tasks] = useState(() => data.newTasks.map((t) => ({ ...t })));
+
+  // Tasks to mark complete
+  const [tasksToComplete, setTasksToComplete] = useState<Set<number>>(new Set());
 
   const utils = trpc.useUtils();
 
-  // New contact creation
-  const [showCreateContact, setShowCreateContact] = useState(false);
-  const [newContactForm, setNewContactForm] = useState({ firstName: "", lastName: "", email: "", phone: "", company: "" });
-  const createContact = trpc.contacts.create.useMutation();
-
-  // Task editing
-  const [editingTaskIdx, setEditingTaskIdx] = useState<number | null>(null);
-
   const applyActions = trpc.callIntel.applyCallActions.useMutation();
   const createLink = trpc.contactLinks.create.useMutation();
+  const updateActivity = trpc.activities.update.useMutation();
+  const completeTask = trpc.tasks.update.useMutation();
+  const createContactMut = trpc.contacts.create.useMutation();
 
-  const totalSelected = selTasks.size + selUpdates.size + selLinks.size;
-  const isPending = applyActions.isPending || createLink.isPending;
+  const primaryContactId = pickedContact?.id ?? null;
 
-  const toggle = (
-    set: Set<number>,
-    setter: React.Dispatch<React.SetStateAction<Set<number>>>,
-    i: number,
-  ) => {
-    const next = new Set(set);
-    if (next.has(i)) next.delete(i);
-    else next.add(i);
-    setter(next);
-  };
+  const { data: pendingTasks } = trpc.tasks.list.useQuery(
+    { contactId: primaryContactId ?? 0, status: "pending", limit: 20 },
+    { enabled: !!primaryContactId },
+  );
 
+  // Counts
+  const acceptedCount = actionItems.filter((i) => i.status === "accepted").length + tasksToComplete.size;
+  const isPending = applyActions.isPending || createLink.isPending || completeTask.isPending || createContactMut.isPending;
+
+  // Accept handler (no-op — ActionCardStack tracks status, real save on Apply)
+  const handleAcceptItem = useCallback(async (_item: ActionItem) => {}, []);
+
+  // Apply all accepted items
   const handleApply = async () => {
     try {
-      const newTasksPayload = Array.from(selTasks).map((i) => {
-        const t = tasks[i];
-        return {
-          title: t.title,
-          description: t.description,
-          priority: clampPriority(t.priority),
-          type: clampType(t.type),
-          contactId: t.contact?.id ?? undefined,
-          propertyId: t.property?.id ?? undefined,
-          dueDaysFromNow: t.dueDaysFromNow || 1,
-        };
-      });
+      const accepted = actionItems.filter((i) => i.status === "accepted");
 
-      const propertyUpdatesPayload = Array.from(selUpdates)
-        .map((i) => {
-          const u = updates[i];
-          if (!u.property.id) return null;
-          return {
-            propertyId: u.property.id,
-            field: u.field,
-            newValue: u.newValue,
-          };
-        })
-        .filter((u): u is NonNullable<typeof u> => !!u);
+      // Tasks
+      const taskPayloads = accepted
+        .filter((i): i is ActionItem & { action: TaskAction } => i.action.kind === "task")
+        .map((i) => ({
+          title: i.action.title,
+          description: i.action.description || "",
+          priority: clampPriority(i.action.priority),
+          type: clampType(i.action.type),
+          contactId: tasks.find((t) => t.title === i.action.title)?.contact?.id ?? pickedContact?.id ?? undefined,
+          propertyId: tasks.find((t) => t.title === i.action.title)?.property?.id ?? pickedProperty?.id ?? undefined,
+          dueDaysFromNow: Math.max(1, Math.round((i.action.dueDate.getTime() - Date.now()) / 86400000)),
+        }));
 
-      if (newTasksPayload.length || propertyUpdatesPayload.length) {
+      // Property updates
+      const propUpdatePayloads = accepted
+        .filter((i): i is ActionItem & { action: PropertyUpdateAction } => i.action.kind === "property_update")
+        .filter((i) => i.action.propertyId)
+        .map((i) => ({
+          propertyId: i.action.propertyId!,
+          field: i.action.field,
+          newValue: i.action.newValue,
+        }));
+
+      if (taskPayloads.length || propUpdatePayloads.length) {
         await applyActions.mutateAsync({
-          newTasks: newTasksPayload,
-          propertyUpdates: propertyUpdatesPayload,
+          newTasks: taskPayloads,
+          propertyUpdates: propUpdatePayloads,
         });
       }
 
-      // Create contact-property links via the dedicated mutation
-      const linksToCreate = Array.from(selLinks)
-        .map((i) => links[i])
-        .filter((l) => l.contact.id && l.property.id);
-      for (const l of linksToCreate) {
+      // Contact-property links
+      const linkActions = accepted
+        .filter((i): i is ActionItem & { action: ContactLinkAction } => i.action.kind === "contact_link")
+        .filter((i) => i.action.contactId && i.action.propertyId);
+      for (const l of linkActions) {
         await createLink.mutateAsync({
-          contactId: l.contact.id!,
-          propertyId: l.property.id!,
+          contactId: l.action.contactId!,
+          propertyId: l.action.propertyId!,
           source: "activity",
-          dealRole: ROLE_TO_DEAL_ROLE[l.relationship] ?? undefined,
+          dealRole: ROLE_TO_DEAL_ROLE[l.action.relationship] ?? undefined,
         });
       }
 
-      toast.success(`Voice memo applied — ${totalSelected} change(s) saved`);
+      // Mark pending tasks complete
+      for (const taskId of Array.from(tasksToComplete)) {
+        await completeTask.mutateAsync({ id: taskId, status: "completed", completedAt: new Date() });
+      }
+
+      // Update activity type if user accepted an activity card
+      const activityActions = accepted.filter(
+        (i): i is ActionItem & { action: ActivityAction } => i.action.kind === "activity",
+      );
+      if (data.activityId) {
+        const patches: Record<string, unknown> = {};
+        if (pickedContact?.id) patches.contactId = pickedContact.id;
+        if (pickedProperty?.id) patches.propertyId = pickedProperty.id;
+        if (activityActions.length > 0) {
+          patches.type = activityActions[0].action.type;
+        }
+        if (Object.keys(patches).length > 0) {
+          try {
+            await updateActivity.mutateAsync({ id: data.activityId, ...patches } as any);
+          } catch { /* non-critical */ }
+        }
+      }
+
+      // Create new contacts
+      const newContactActions = accepted
+        .filter((i): i is ActionItem & { action: NewContactAction } => i.action.kind === "new_contact");
+      for (const nc of newContactActions) {
+        if (!nc.action.firstName) continue;
+        try {
+          await createContactMut.mutateAsync({
+            firstName: nc.action.firstName,
+            lastName: nc.action.lastName,
+            phone: nc.action.phone || undefined,
+            email: nc.action.email || undefined,
+            company: nc.action.company || undefined,
+          });
+        } catch { /* continue */ }
+      }
+
+      toast.success(`Voice memo applied — ${accepted.length + tasksToComplete.size} change(s) saved`);
       utils.tasks.invalidate();
       utils.properties.invalidate();
       utils.contacts.invalidate();
       utils.activities.invalidate();
       onDone();
     } catch (err) {
-      toast.error(
-        `Failed to apply: ${err instanceof Error ? err.message : "Unknown error"}`,
-      );
+      toast.error(`Failed to apply: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
   };
 
   return (
     <div className="space-y-4">
+      {/* Transcript (collapsible) */}
       <details className="text-sm">
         <summary className="cursor-pointer font-medium text-muted-foreground">
           View transcript
@@ -256,6 +286,7 @@ export function VoiceMemoReviewPanel({
         </p>
       </details>
 
+      {/* Summary + Key Insights */}
       <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
         <p className="text-sm font-medium">{data.summary}</p>
         {data.keyInsights.length > 0 && (
@@ -267,434 +298,189 @@ export function VoiceMemoReviewPanel({
         )}
       </div>
 
-      {/* Pending tasks for detected contact */}
-      {detectedContactId && pendingTasksQuery.data && pendingTasksQuery.data.length > 0 && (
-        <Section title={`Pending Tasks for ${detectedContactName ?? "this contact"}`}>
-          {pendingTasksQuery.data.map((pt) => {
-            const isDone = completedTaskIds.has(pt.id);
-            return (
-              <div key={pt.id} className="flex items-start gap-2 border rounded-md p-2">
-                {isDone ? (
-                  <div className="mt-0.5 shrink-0">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  </div>
-                ) : confirmingPendingId === pt.id ? (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={async () => {
-                        try {
-                          await completeTaskMut.mutateAsync({ id: pt.id, status: "completed" });
-                          setCompletedTaskIds((prev) => new Set(prev).add(pt.id));
-                          toast.success(`Completed: ${pt.title}`);
-                        } catch {
-                          toast.error("Failed to complete task");
-                        }
-                        setConfirmingPendingId(null);
-                      }}
-                      className="text-green-600 hover:text-green-700"
-                    >
-                      <CheckCircle2 className="h-5 w-5" />
-                    </button>
-                    <button onClick={() => setConfirmingPendingId(null)} className="text-muted-foreground hover:text-foreground">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmingPendingId(pt.id)}
-                    className="text-muted-foreground hover:text-green-600 mt-0.5 shrink-0"
-                  >
-                    <div className="h-4 w-4 rounded-full border-2 border-current" />
-                  </button>
-                )}
-                <div className={`flex-1 min-w-0 ${isDone ? "line-through text-muted-foreground" : ""}`}>
-                  <div className="text-sm font-medium">{pt.title}</div>
-                  {pt.dueAt && (
-                    <div className="text-[10px] text-muted-foreground">
-                      Due {new Date(pt.dueAt).toLocaleDateString()}
-                    </div>
-                  )}
-                </div>
+      {/* Contact + Property (always visible, easy override) */}
+      <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
+        {/* Contact */}
+        <div>
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Contact</div>
+          {showNewContactForm ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center text-xs px-2 py-1 rounded-full border bg-amber-100 text-amber-800 border-amber-200">
+                  New: {newContactData?.extractedName ?? ""}
+                </span>
+                <button onClick={() => { setShowNewContactForm(false); setShowContactSearch(true); }} className="text-xs text-primary hover:underline">Search instead</button>
               </div>
-            );
-          })}
-        </Section>
-      )}
-
-      {tasks.length > 0 && (
-        <Section title={`New Tasks (${tasks.length})`}>
-          {tasks.map((t, i) => (
-            <div key={i} className="flex items-start gap-2 border rounded-md p-2">
-              <Checkbox checked={selTasks.has(i)} onCheckedChange={() => toggle(selTasks, setSelTasks, i)} className="mt-0.5" />
-              <div className="flex-1 min-w-0">
-                {editingTaskIdx === i ? (
-                  <div className="space-y-2">
-                    <Input
-                      value={t.title}
-                      onChange={(e) => {
-                        const next = [...tasks];
-                        next[i] = { ...next[i], title: e.target.value };
-                        setTasks(next);
-                      }}
-                      className="h-7 text-xs"
-                      placeholder="Task title"
-                      autoFocus
-                    />
-                    <div className="flex gap-2">
-                      <Select
-                        value={t.priority}
-                        onValueChange={(v) => {
-                          const next = [...tasks];
-                          next[i] = { ...next[i], priority: v };
-                          setTasks(next);
-                        }}
-                      >
-                        <SelectTrigger className="h-7 text-xs w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PRIORITY_VALUES.map((p) => (
-                            <SelectItem key={p} value={p}>{p}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Select
-                        value={t.type}
-                        onValueChange={(v) => {
-                          const next = [...tasks];
-                          next[i] = { ...next[i], type: v };
-                          setTasks(next);
-                        }}
-                      >
-                        <SelectTrigger className="h-7 text-xs w-28">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TYPE_VALUES.map((tp) => (
-                            <SelectItem key={tp} value={tp}>{tp.replace("_", " ")}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-muted-foreground">Due in</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={t.dueDaysFromNow}
-                          onChange={(e) => {
-                            const next = [...tasks];
-                            next[i] = { ...next[i], dueDaysFromNow: parseInt(e.target.value) || 1 };
-                            setTasks(next);
-                          }}
-                          className="h-7 text-xs w-14"
-                        />
-                        <span className="text-xs text-muted-foreground">days</span>
-                      </div>
-                    </div>
-                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setEditingTaskIdx(null)}>
-                      Done editing
-                    </Button>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <div className="text-sm font-medium flex-1">{t.title}</div>
-                      <button
-                        type="button"
-                        onClick={() => setEditingTaskIdx(i)}
-                        className="text-muted-foreground hover:text-foreground"
-                        title="Edit task"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                    <div className="text-xs text-muted-foreground">{t.priority} · {t.type.replace("_", " ")} · due in {t.dueDaysFromNow}d</div>
-                  </div>
-                )}
-                <EntityMatch
-                  entity={t.contact ?? emptyRef("contact")}
-                  type="contact"
-                  onPick={(picked) => {
-                    const next = [...tasks];
-                    next[i] = { ...next[i], contact: picked };
-                    setTasks(next);
-                  }}
-                  onCreateContact={() => setShowCreateContact(true)}
-                />
-                <EntityMatch
-                  entity={t.property ?? emptyRef("property")}
-                  type="property"
-                  onPick={(picked) => {
-                    const next = [...tasks];
-                    next[i] = { ...next[i], property: picked };
-                    setTasks(next);
-                  }}
-                />
+              <div className="grid grid-cols-2 gap-2">
+                <Input value={newContact.firstName} onChange={(e) => setNewContact({ ...newContact, firstName: e.target.value })} placeholder="First name" className="h-9 text-xs bg-background border-border" />
+                <Input value={newContact.lastName} onChange={(e) => setNewContact({ ...newContact, lastName: e.target.value })} placeholder="Last name" className="h-9 text-xs bg-background border-border" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input value={newContact.phone} onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })} placeholder="Phone" className="h-9 text-xs bg-background border-border" />
+                <Input value={newContact.company} onChange={(e) => setNewContact({ ...newContact, company: e.target.value })} placeholder="Company" className="h-9 text-xs bg-background border-border" />
+              </div>
+              <Button
+                className="w-full h-9 text-xs gap-1.5"
+                disabled={!newContact.firstName.trim() || createContactMut.isPending}
+                onClick={async () => {
+                  const c = await createContactMut.mutateAsync({
+                    firstName: newContact.firstName.trim(),
+                    lastName: newContact.lastName.trim(),
+                    phone: newContact.phone.trim() || undefined,
+                    company: newContact.company.trim() || undefined,
+                  });
+                  setPickedContact({ id: c.id, name: `${c.firstName} ${c.lastName}`, confidence: "high", matchMethod: "created", candidateCount: 1 });
+                  setShowNewContactForm(false);
+                  toast.success(`Created ${c.firstName} ${c.lastName}`);
+                }}
+              >
+                {createContactMut.isPending ? "Creating..." : `Create ${newContact.firstName} ${newContact.lastName}`.trim()}
+              </Button>
+            </div>
+          ) : showContactSearch ? (
+            <EntityMatch
+              entity={pickedContact ?? { id: null, name: "(search)", confidence: "none", matchMethod: "unmatched", candidateCount: 0 }}
+              type="contact"
+              onPick={(picked) => { setPickedContact(picked); setShowContactSearch(false); }}
+              onNewContact={() => { setShowContactSearch(false); setShowNewContactForm(true); }}
+            />
+          ) : pickedContact && pickedContact.id ? (
+            <div className="space-y-2">
+              <div className={`inline-flex items-center text-xs px-2 py-1 rounded-full border ${confidenceColors[pickedContact.confidence]}`}>
+                {pickedContact.name}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-9 text-xs flex-1" onClick={() => setShowContactSearch(true)}>Change</Button>
+                <Button variant="outline" size="sm" className="h-9 text-xs flex-1 gap-1" onClick={() => { setShowContactSearch(false); setShowNewContactForm(true); }}>
+                  <UserPlus className="h-3 w-3" /> New Contact
+                </Button>
+                <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => { setPickedContact(null); setShowContactSearch(false); }}>Clear</Button>
               </div>
             </div>
-          ))}
-        </Section>
-      )}
-
-      {updates.length > 0 && (
-        <Section title={`Property Updates (${updates.length})`}>
-          {updates.map((u, i) => (
-            <CheckItem
-              key={i}
-              checked={selUpdates.has(i)}
-              onToggle={() => toggle(selUpdates, setSelUpdates, i)}
-              label={`${u.property.name}: ${u.field}`}
-              sublabel={`→ ${u.newValue} (${u.reason})`}
-            >
-              <EntityMatch
-                entity={u.property}
-                type="property"
-                onPick={(picked) => {
-                  const next = [...updates];
-                  next[i] = { ...next[i], property: picked };
-                  setUpdates(next);
-                }}
-              />
-            </CheckItem>
-          ))}
-        </Section>
-      )}
-
-      {links.length > 0 && (
-        <Section title={`Contact ↔ Property Links (${links.length})`}>
-          {links.map((l, i) => (
-            <CheckItem
-              key={i}
-              checked={selLinks.has(i)}
-              onToggle={() => toggle(selLinks, setSelLinks, i)}
-              label={`${l.contact.name} → ${l.property.name}`}
-              sublabel={`${l.relationship} · ${l.reason}`}
-            >
-              <EntityMatch
-                entity={l.contact}
-                type="contact"
-                onPick={(picked) => {
-                  const next = [...links];
-                  next[i] = { ...next[i], contact: picked };
-                  setLinks(next);
-                }}
-                onCreateContact={() => setShowCreateContact(true)}
-              />
-              <EntityMatch
-                entity={l.property}
-                type="property"
-                onPick={(picked) => {
-                  const next = [...links];
-                  next[i] = { ...next[i], property: picked };
-                  setLinks(next);
-                }}
-              />
-            </CheckItem>
-          ))}
-        </Section>
-      )}
-
-      {/* Create new contact */}
-      {showCreateContact && (
-        <div className="border rounded-md p-3 space-y-2 bg-muted/30">
-          <div className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold">Create New Contact</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              placeholder="First name"
-              value={newContactForm.firstName}
-              onChange={(e) => setNewContactForm({ ...newContactForm, firstName: e.target.value })}
-              className="h-7 text-xs"
-              autoFocus
-            />
-            <Input
-              placeholder="Last name"
-              value={newContactForm.lastName}
-              onChange={(e) => setNewContactForm({ ...newContactForm, lastName: e.target.value })}
-              className="h-7 text-xs"
-            />
-          </div>
-          <Input
-            placeholder="Email"
-            value={newContactForm.email}
-            onChange={(e) => setNewContactForm({ ...newContactForm, email: e.target.value })}
-            className="h-7 text-xs"
-          />
-          <Input
-            placeholder="Phone"
-            value={newContactForm.phone}
-            onChange={(e) => setNewContactForm({ ...newContactForm, phone: e.target.value })}
-            className="h-7 text-xs"
-          />
-          <Input
-            placeholder="Company"
-            value={newContactForm.company}
-            onChange={(e) => setNewContactForm({ ...newContactForm, company: e.target.value })}
-            className="h-7 text-xs"
-          />
-          {newContactForm.firstName && newContactForm.lastName && (
-            <DuplicateWarning
-              firstName={newContactForm.firstName}
-              lastName={newContactForm.lastName}
-              email={newContactForm.email || undefined}
-              phone={newContactForm.phone || undefined}
-              onUseExisting={(existing) => {
-                const fullName = `${existing.firstName} ${existing.lastName}`;
-                const next = tasks.map((t) => {
-                  if (!t.contact?.id || t.contact.confidence === "none" || t.contact.confidence === "low") {
-                    return { ...t, contact: { id: existing.id, name: fullName, confidence: "high" as Confidence, matchMethod: "duplicate_pick", candidateCount: 1 } };
-                  }
-                  return t;
-                });
-                setTasks(next);
-                setShowCreateContact(false);
-                setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
-                toast.success(`Using existing contact: ${fullName}`);
-              }}
-              onCreateAnyway={() => {/* let them click Create below */}}
-            />
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">No contact detected</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-9 text-xs flex-1" onClick={() => setShowContactSearch(true)}>Search Contact</Button>
+                <Button variant="outline" size="sm" className="h-9 text-xs flex-1 gap-1" onClick={() => setShowNewContactForm(true)}>
+                  <UserPlus className="h-3 w-3" /> New Contact
+                </Button>
+              </div>
+            </div>
           )}
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="h-7 text-xs"
-              disabled={!newContactForm.firstName || !newContactForm.lastName || createContact.isPending}
-              onClick={async () => {
-                try {
-                  const result = await createContact.mutateAsync({
-                    firstName: newContactForm.firstName,
-                    lastName: newContactForm.lastName,
-                    email: newContactForm.email || undefined,
-                    phone: newContactForm.phone || undefined,
-                    company: newContactForm.company || undefined,
-                  });
-                  const fullName = `${newContactForm.firstName} ${newContactForm.lastName}`;
-                  toast.success(`Created ${fullName}`);
-                  // Update any unmatched tasks to use this new contact
-                  const next = tasks.map((t) => {
-                    if (!t.contact?.id || t.contact.confidence === "none" || t.contact.confidence === "low") {
-                      return {
-                        ...t,
-                        contact: { id: result.id, name: fullName, confidence: "high" as Confidence, matchMethod: "created", candidateCount: 1 },
-                      };
-                    }
-                    return t;
-                  });
-                  setTasks(next);
-                  setShowCreateContact(false);
-                  setNewContactForm({ firstName: "", lastName: "", email: "", phone: "", company: "" });
-                  utils.contacts.invalidate();
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Failed to create contact");
-                }
-              }}
-            >
-              {createContact.isPending ? "Creating..." : "Create"}
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowCreateContact(false)}>
-              Cancel
-            </Button>
+        </div>
+
+        {/* Property */}
+        <div>
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Property</div>
+          {showPropertySearch ? (
+            <EntityMatch
+              entity={pickedProperty ?? { id: null, name: "(search)", confidence: "none", matchMethod: "unmatched", candidateCount: 0 }}
+              type="property"
+              onPick={(picked) => { setPickedProperty(picked); setShowPropertySearch(false); }}
+            />
+          ) : pickedProperty && pickedProperty.id ? (
+            <div className="space-y-2">
+              <PropertyBadge propertyId={pickedProperty.id} name={pickedProperty.name} confidence={pickedProperty.confidence} />
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-9 text-xs flex-1" onClick={() => setShowPropertySearch(true)}>Change</Button>
+                <Button variant="outline" size="sm" className="h-9 text-xs" onClick={() => { setPickedProperty(null); setShowPropertySearch(false); }}>Clear</Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" className="h-9 text-xs w-full" onClick={() => setShowPropertySearch(true)}>Search Property</Button>
+          )}
+        </div>
+      </div>
+
+      {/* Mark Complete -- pending tasks */}
+      {pendingTasks && pendingTasks.length > 0 && (
+        <div>
+          <h4 className="text-sm font-semibold mb-2">Mark Complete? ({pendingTasks.length} pending)</h4>
+          <p className="text-[11px] text-muted-foreground italic mb-2">
+            Pending tasks for the linked contact. Check any this memo fulfilled.
+          </p>
+          <div className="space-y-2">
+            {pendingTasks.map((t) => (
+              <div key={t.id} className="flex items-start gap-2 border rounded-md p-2">
+                <Checkbox
+                  checked={tasksToComplete.has(t.id)}
+                  onCheckedChange={() => {
+                    const next = new Set(tasksToComplete);
+                    if (next.has(t.id)) next.delete(t.id);
+                    else next.add(t.id);
+                    setTasksToComplete(next);
+                  }}
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">{t.title}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t.priority}{t.dueAt ? ` · due ${new Date(t.dueAt).toLocaleDateString()}` : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {!showCreateContact && (
-        <button
-          type="button"
-          onClick={() => setShowCreateContact(true)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <UserPlus className="h-3.5 w-3.5" /> Add new contact mentioned in memo
-        </button>
+      {/* Action Cards */}
+      {actionItems.length > 0 ? (
+        <div>
+          <h4 className="text-sm font-semibold mb-2">Actions ({actionItems.length})</h4>
+          <ActionCardStack
+            items={actionItems}
+            onItemsChange={setActionItems}
+            onAccept={handleAcceptItem}
+            showAddTask
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+          Transcript saved as activity note.
+        </div>
       )}
 
-      {tasks.length === 0 && updates.length === 0 && links.length === 0 && (
-        <p className="text-sm text-muted-foreground italic">
-          No actionable items extracted. The transcript is saved as an activity note.
-        </p>
-      )}
-
+      {/* Apply button */}
       <Button
         className="w-full"
         onClick={handleApply}
-        disabled={totalSelected === 0 || isPending}
+        disabled={isPending}
       >
         {isPending
-          ? "Applying…"
-          : totalSelected === 0
-            ? "Close"
-            : `Apply ${totalSelected} Change${totalSelected === 1 ? "" : "s"}`}
+          ? "Applying..."
+          : acceptedCount > 0
+            ? `Apply ${acceptedCount} Change${acceptedCount === 1 ? "" : "s"}`
+            : "Save & Log"}
       </Button>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h4 className="text-sm font-semibold mb-2">{title}</h4>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function CheckItem({
-  checked,
-  onToggle,
-  label,
-  sublabel,
-  children,
-}: {
-  checked: boolean;
-  onToggle: () => void;
-  label: string;
-  sublabel: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-2 border rounded-md p-2">
-      <Checkbox checked={checked} onCheckedChange={onToggle} className="mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium">{label}</div>
-        <div className="text-xs text-muted-foreground">{sublabel}</div>
-        {children}
-      </div>
-    </div>
-  );
-}
+// ── EntityMatch (search picker) ─────────────────────────────────────────────
 
 function EntityMatch({
   entity,
   type,
   onPick,
-  onCreateContact,
+  onNewContact,
 }: {
   entity: ResolvedRef;
   type: "contact" | "property";
   onPick: (picked: ResolvedRef) => void;
-  onCreateContact?: () => void;
+  onNewContact?: () => void;
 }) {
-  const [showAlts, setShowAlts] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const [query, setQuery] = useState("");
-  const icon = type === "contact" ? "👤" : "🏢";
-  const hasAlts = !!entity.topCandidates && entity.topCandidates.length > 0;
-  const isEmpty = entity.id === null && entity.name.startsWith("(no ");
-  const label = isEmpty
-    ? `${icon} ${type === "contact" ? "Add contact" : "Add property"}`
-    : entity.confidence === "none"
-      ? `${icon} "${entity.name}" — no match`
-      : `${icon} ${entity.name}`;
 
   const contactsQ = trpc.contacts.list.useQuery(
-    { search: query, limit: 10 },
-    { enabled: type === "contact" && showSearch && query.length >= 1 },
+    { search: query || undefined, limit: 8 },
+    { enabled: type === "contact" },
   );
   const propertiesQ = trpc.properties.list.useQuery(
-    { search: query, limit: 10 },
-    { enabled: type === "property" && showSearch && query.length >= 1 },
+    { search: query || undefined, limit: 8 },
+    { enabled: type === "property" },
   );
 
   type SearchHit = { id: number; name: string; sub?: string };
@@ -712,107 +498,58 @@ function EntityMatch({
         }));
 
   return (
-    <div className="mt-1">
-      <div className="flex items-center gap-1 flex-wrap">
-        <button
-          type="button"
-          onClick={() => hasAlts && setShowAlts((o) => !o)}
-          className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${confidenceColors[entity.confidence]} ${hasAlts ? "cursor-pointer hover:opacity-80" : ""}`}
-        >
-          {label}
-          {entity.confidence !== "high" && entity.confidence !== "none" && hasAlts && (
-            <span className="text-[10px] opacity-70">({entity.candidateCount})</span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setShowSearch((s) => !s);
-            setShowAlts(false);
-          }}
-          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted"
-          title={`Search for a different ${type}`}
-        >
-          <Search className="h-3 w-3" />
-          {showSearch ? "Cancel" : "Search"}
-        </button>
+    <div className="space-y-2">
+      <Input
+        autoFocus
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={type === "contact" ? "Type a name..." : "Type a property name..."}
+        className="h-9 text-sm bg-background border-border"
+      />
+      <div className="max-h-52 overflow-y-auto border rounded-lg bg-card">
+        {!query && <div className="text-xs text-muted-foreground px-3 py-1.5">Recent</div>}
+        {hits.length === 0 && query && (
+          <div className="text-sm text-muted-foreground px-3 py-3">No results for "{query}"</div>
+        )}
+        {hits.map((h) => (
+          <button
+            key={h.id}
+            type="button"
+            className="w-full text-left px-3 py-2.5 hover:bg-muted border-b border-border/40 last:border-0 transition-colors"
+            onClick={() => {
+              onPick({
+                ...entity,
+                id: h.id,
+                name: h.name,
+                confidence: "high",
+                matchMethod: "manual",
+              });
+              setQuery("");
+            }}
+          >
+            <div className="text-sm font-medium text-foreground">{h.name}</div>
+            {h.sub && <div className="text-xs text-muted-foreground">{h.sub}</div>}
+          </button>
+        ))}
       </div>
-
-      {showAlts && entity.topCandidates && (
-        <div className="mt-1 ml-2 space-y-1">
-          {entity.topCandidates.map((alt) => (
-            <button
-              key={alt.id}
-              type="button"
-              className="block text-xs text-left w-full px-2 py-1 rounded hover:bg-muted"
-              onClick={() => {
-                onPick({ ...entity, id: alt.id, name: alt.name, confidence: "high" });
-                setShowAlts(false);
-              }}
-            >
-              {alt.name} <span className="text-muted-foreground">(score {alt.score})</span>
-            </button>
-          ))}
-        </div>
+      {type === "contact" && onNewContact && (
+        <Button variant="outline" size="sm" className="w-full h-9 text-xs gap-1.5" onClick={onNewContact}>
+          <UserPlus className="h-3.5 w-3.5" /> New Contact
+        </Button>
       )}
+    </div>
+  );
+}
 
-      {showSearch && (
-        <div className="mt-1 ml-2 space-y-1">
-          <Input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={type === "contact" ? "Search contacts…" : "Search properties…"}
-            className="h-7 text-xs"
-          />
-          <div className="max-h-48 overflow-y-auto border rounded">
-            {query.length < 1 && (
-              <div className="text-[11px] text-muted-foreground px-2 py-1">
-                Type to search…
-              </div>
-            )}
-            {query.length >= 1 && hits.length === 0 && (
-              <div className="text-[11px] text-muted-foreground px-2 py-1">
-                No results
-                {type === "contact" && onCreateContact && (
-                  <button
-                    type="button"
-                    className="ml-1 text-primary hover:underline"
-                    onClick={() => {
-                      onCreateContact();
-                      setShowSearch(false);
-                      setQuery("");
-                    }}
-                  >
-                    — Create new contact
-                  </button>
-                )}
-              </div>
-            )}
-            {hits.map((h) => (
-              <button
-                key={h.id}
-                type="button"
-                className="block text-xs text-left w-full px-2 py-1 hover:bg-muted"
-                onClick={() => {
-                  onPick({
-                    ...entity,
-                    id: h.id,
-                    name: h.name,
-                    confidence: "high",
-                    matchMethod: "manual",
-                  });
-                  setShowSearch(false);
-                  setQuery("");
-                }}
-              >
-                <div className="font-medium">{h.name}</div>
-                {h.sub && <div className="text-[10px] text-muted-foreground">{h.sub}</div>}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+// ── Property badge with details lookup ──────────────────────────────────────
+
+function PropertyBadge({ propertyId, name, confidence }: { propertyId: number; name: string; confidence: Confidence }) {
+  const { data: prop } = trpc.properties.byId.useQuery({ id: propertyId }, { enabled: !!propertyId });
+  const sub = prop ? [prop.city, prop.unitCount ? `${prop.unitCount}u` : null].filter(Boolean).join(" · ") : null;
+  return (
+    <div className={`inline-flex flex-col text-xs px-3 py-1.5 rounded-lg border ${confidenceColors[confidence]}`}>
+      <span className="font-medium">{name}</span>
+      {sub && <span className="text-[10px] opacity-70">{sub}</span>}
     </div>
   );
 }
