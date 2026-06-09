@@ -67,7 +67,7 @@ function loadGoogleMaps(apiKey: string): Promise<typeof google.maps> {
       delete (window as unknown as Record<string, () => void>)[callbackName];
     };
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=drawing,geometry,places&callback=${callbackName}&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry,places&callback=${callbackName}&loading=async`;
     script.async = true;
     script.defer = true;
     script.onerror = () => reject(new Error("Failed to load Google Maps"));
@@ -110,7 +110,6 @@ export default function MapView() {
   const [, setLocation] = useLocation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
-  const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null);
   const markersRef = useRef<Map<number, google.maps.Marker>>(new Map());
   const polygonsRef = useRef<Map<number, google.maps.Polygon>>(new Map());
 
@@ -249,99 +248,6 @@ export default function MapView() {
             { timeout: 5000, maximumAge: 60_000 },
           );
         }
-
-        // Drawing manager for polygons
-        const drawingManager = new maps.drawing.DrawingManager({
-          drawingMode: null, // off by default
-          drawingControl: false, // we use our own button
-          polygonOptions: {
-            fillColor: "#d03238",
-            fillOpacity: 0.25,
-            strokeColor: "#d03238",
-            strokeWeight: 2,
-            clickable: true,
-            editable: false,
-            zIndex: 1,
-          },
-        });
-        drawingManager.setMap(map);
-        drawingManagerRef.current = drawingManager;
-
-        // Listen for completed polygon draws
-        maps.event.addListener(
-          drawingManager,
-          "polygoncomplete",
-          (polygon: google.maps.Polygon) => {
-            // Calculate centroid for the pin location
-            const path = polygon.getPath();
-            let latSum = 0;
-            let lngSum = 0;
-            const len = path.getLength();
-            for (let i = 0; i < len; i++) {
-              const pt = path.getAt(i);
-              latSum += pt.lat();
-              lngSum += pt.lng();
-            }
-            const centroid = { lat: latSum / len, lng: lngSum / len };
-
-            // Stop drawing mode after each polygon
-            drawingManager.setDrawingMode(null);
-
-            // If drawing for an existing property, save boundary directly
-            const existingId = drawingForPropertyIdRef.current;
-            if (existingId) {
-              const pathArr = polygon.getPath();
-              const ring: number[][] = [];
-              for (let i = 0; i < pathArr.getLength(); i++) {
-                const pt = pathArr.getAt(i);
-                ring.push([pt.lng(), pt.lat()]);
-              }
-              if (ring.length > 0) ring.push(ring[0]);
-              const geojson = JSON.stringify({ type: "Polygon", coordinates: [ring] });
-
-              polygon.setMap(null);
-              drawingForPropertyIdRef.current = null;
-              setDrawingForPropertyId(null);
-
-              // Save via mutation
-              updateProperty.mutateAsync({
-                id: existingId,
-                data: { boundary: geojson, latitude: centroid.lat, longitude: centroid.lng },
-              }).then(() => {
-                toast.success("Boundary saved");
-                utils.properties.forMap.invalidate();
-              }).catch(() => {
-                toast.error("Failed to save boundary");
-              });
-              return;
-            }
-
-            setPendingPolygon(polygon);
-            setPendingCenter(centroid);
-            setShowNameModal(true);
-
-            // Reverse-geocode centroid to auto-fill address fields
-            setGeocoding(true);
-            const geocoder = new maps.Geocoder();
-            geocoder.geocode({ location: centroid }, (results, status) => {
-              setGeocoding(false);
-              if (status !== "OK" || !results?.[0]) return;
-              const components = results[0].address_components;
-              const get = (type: string) =>
-                components.find((c) => c.types.includes(type))?.short_name ?? "";
-              const streetNumber = get("street_number");
-              const route = get("route");
-              const addr = [streetNumber, route].filter(Boolean).join(" ");
-              setNewPropertyForm((prev) => ({
-                ...prev,
-                address: addr,
-                city: get("locality") || get("sublocality") || get("neighborhood"),
-                state: get("administrative_area_level_1"),
-                zip: get("postal_code"),
-              }));
-            });
-          },
-        );
 
         // Click handler for drop-pin AND custom drawing
         maps.event.addListener(map, "click", (e: google.maps.MapMouseEvent) => {
@@ -689,7 +595,6 @@ export default function MapView() {
   };
 
   const cancelDrawing = () => {
-    if (drawingManagerRef.current) drawingManagerRef.current.setDrawingMode(null);
     cleanupCustomDrawing();
     if (pendingPolygon) {
       pendingPolygon.setMap(null);
