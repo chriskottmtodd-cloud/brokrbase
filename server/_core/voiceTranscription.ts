@@ -271,47 +271,78 @@ export async function transcribeAudioWithGemini(
     generationConfig: {
       temperature: 0,
       responseMimeType: "text/plain",
+      // Disable thinking — Gemini 2.5 Flash thinking mode intermittently
+      // swallows the output on audio inputs (returns empty parts after
+      // burning thinking tokens). Transcription is mechanical, no thinking
+      // needed anyway.
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(ENV.geminiApiKey)}`;
+  // Model fallback chain for transcription
+  const TRANSCRIPTION_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"];
+  const jsonBody = JSON.stringify(body);
 
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      return {
-        error: "Gemini transcription request failed",
-        code: "TRANSCRIPTION_FAILED",
-        details: `${response.status} ${response.statusText}: ${errText.slice(0, 500)}`,
+  for (const model of TRANSCRIPTION_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(ENV.geminiApiKey)}`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: jsonBody,
+      });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        // On 503, try next model instead of failing immediately
+        if (response.status === 503 && model !== TRANSCRIPTION_MODELS[TRANSCRIPTION_MODELS.length - 1]) {
+          console.log(`[Transcription] ${model} returned 503 — trying next model`);
+          continue;
+        }
+        return {
+          error: "Gemini transcription request failed",
+          code: "TRANSCRIPTION_FAILED",
+          details: `${response.status} ${response.statusText}: ${errText.slice(0, 500)}`,
+        };
+      }
+      if (model !== TRANSCRIPTION_MODELS[0]) {
+        console.log(`[Transcription] ${TRANSCRIPTION_MODELS[0]} unavailable — succeeded with ${model}`);
+      }
+      const json = (await response.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       };
+      const text = json.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text || "")
+        .join("")
+        .trim();
+      if (!text) {
+        return {
+          error: "Gemini returned no transcription",
+          code: "SERVICE_ERROR",
+          details: JSON.stringify(json).slice(0, 500),
+        };
+      }
+      return { text };
+    } catch (err) {
+      // Network error on last model — give up
+      if (model === TRANSCRIPTION_MODELS[TRANSCRIPTION_MODELS.length - 1]) {
+        return {
+          error: "Gemini transcription failed",
+          code: "SERVICE_ERROR",
+          details: err instanceof Error ? err.message : String(err),
+        };
+      }
+      // Otherwise try next model
+      console.log(`[Transcription] ${model} error — trying next model`);
+      continue;
     }
-    const json = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const text = json.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text || "")
-      .join("")
-      .trim();
-    if (!text) {
-      return {
-        error: "Gemini returned no transcription",
-        code: "SERVICE_ERROR",
-        details: JSON.stringify(json).slice(0, 500),
-      };
-    }
-    return { text };
-  } catch (err) {
-    return {
-      error: "Gemini transcription failed",
-      code: "SERVICE_ERROR",
-      details: err instanceof Error ? err.message : String(err),
-    };
   }
+
+  return {
+    error: "Gemini transcription failed",
+    code: "SERVICE_ERROR",
+    details: "All models exhausted",
+  };
 }
 
 /**
