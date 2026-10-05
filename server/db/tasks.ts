@@ -31,10 +31,11 @@ export async function getTasks(userId: number, filters?: {
     .limit(filters?.limit ?? 100);
 }
 
-export async function createTask(data: InsertTask) {
+export async function createTask(data: InsertTask): Promise<number | null> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
-  await db.insert(tasks).values(data);
+  const result = await db.insert(tasks).values(data);
+  return (result as unknown as Array<{ insertId: number }>)[0]?.insertId ?? null;
 }
 
 export async function updateTask(id: number, userId: number, data: Partial<InsertTask>) {
@@ -68,7 +69,7 @@ export async function completeTaskWithLog(task: Task, userId: number, note?: str
   const type = (ACTIVITY_TYPES as readonly string[]).includes(task.type)
     ? (task.type as (typeof ACTIVITY_TYPES)[number])
     : "note";
-  await createActivity({
+  const result = await createActivity({
     userId,
     type,
     contactId: task.contactId,
@@ -77,5 +78,6 @@ export async function completeTaskWithLog(task: Task, userId: number, note?: str
     notes: note ?? null,
     outcome: "follow_up",
   });
-  return { activityLogged: true };
+  const activityId = (result as unknown as Array<{ insertId: number }>)[0]?.insertId ?? null;
+  return { activityLogged: true, activityId };
 }

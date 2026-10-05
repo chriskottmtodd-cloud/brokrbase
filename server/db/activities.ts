@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, max } from "drizzle-orm";
 import {
   Activity,
   InsertActivity,
@@ -204,4 +204,22 @@ export async function getActivitiesForProperty(userId: number, propertyId: numbe
     .where(and(eq(activities.userId, userId), eq(activities.propertyId, propertyId)))
     .orderBy(desc(activities.occurredAt))
     .limit(limit);
+}
+
+/**
+ * Reset a contact's lastContactedAt to their latest remaining activity.
+ * Used after an activity is moved off the wrong contact, so the mistake
+ * doesn't keep boosting them in "recently contacted" ranking.
+ */
+export async function recomputeContactLastContacted(contactId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [row] = await db
+    .select({ latest: max(activities.occurredAt) })
+    .from(activities)
+    .where(and(eq(activities.contactId, contactId), eq(activities.userId, userId)));
+  await db
+    .update(contacts)
+    .set({ lastContactedAt: row?.latest ?? null })
+    .where(and(eq(contacts.id, contactId), eq(contacts.userId, userId)));
 }

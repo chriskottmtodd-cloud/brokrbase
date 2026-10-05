@@ -30,7 +30,11 @@ function buildServer(userId: number): McpServer {
     { name: "brokrbase", version: "1.0.0" },
     {
       instructions:
-        "Brokrbase is the user's commercial real estate CRM. Search before you write: look up contacts and properties to get their ids. Confirm details with the user before logging activity, creating tasks, or changing contacts.",
+        "Brokrbase is the user's commercial real estate CRM, usually used from a phone mid-day. " +
+        "Search before you write: look up contacts with search_contacts (pass the property if one was mentioned so the right person ranks first). " +
+        "Don't make the user confirm routine logging. If search_contacts reports a clear best match, go ahead and write, then reply with the tool's one-line `confirmation` (who, what, which property) and invite a correction, e.g. \"Logged a call with John Smith (Acme) on Fairview. Let me know if it was a different John.\" " +
+        "Only ask first when search_contacts flags a close call, or nothing matches. " +
+        "If the user says something was wrong, fix it with update_activity or update_task; nothing can be deleted.",
     },
   );
   registerBrokrbaseTools(server, userId);
