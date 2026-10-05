@@ -22,6 +22,7 @@ const contacts = [
 const fairview = { id: 100, userId: 1, name: "Fairview Apartments" };
 const activities = [{ id: 500, userId: 1, type: "call", contactId: 3, propertyId: null }];
 const recomputed: number[] = [];
+const createdContacts: unknown[] = [];
 const tasks = [
   { id: 10, userId: 1, title: "Call Mike", type: "call", status: "pending", contactId: 1, propertyId: null, dueAt: null, completedAt: null },
   { id: 20, userId: 2, title: "Not yours", type: "call", status: "pending", contactId: 2, propertyId: null, dueAt: null, completedAt: null },
@@ -52,8 +53,9 @@ vi.mock("./db", () => ({
   recomputeContactLastContacted: vi.fn(async (id: number) => { recomputed.push(id); }),
   getActivitiesForProperty: vi.fn(async () => []),
   createTask: vi.fn(),
-  createContact: vi.fn(),
-  findSimilarContacts: vi.fn(async () => []),
+  createContact: vi.fn(async (data: unknown) => { createdContacts.push(data); return { insertId: 900 }; }),
+  findSimilarContacts: vi.fn(async (_userId: number, c: { firstName: string; lastName?: string }) =>
+    c.firstName === "Mike" && c.lastName === "Jones" ? [{ id: 1, firstName: "Mike", lastName: "Jones" }] : []),
   updateContact: vi.fn(),
   createContactPropertyLink: vi.fn(),
 }));
@@ -228,5 +230,35 @@ describe("Fixing mistakes", () => {
     const client = await clientFor(1);
     const out = JSON.parse(text(await client.callTool({ name: "update_task", arguments: { taskId: 10, dueDate: "2026-10-13", reopen: true } })));
     expect(out.confirmation).toBe('Updated task "Call Mike" (reopened), now due 2026-10-13.');
+  });
+});
+
+describe("Business cards and new people", () => {
+  it("creates the contact and logs the meeting in their history in one step", async () => {
+    createdActivities.length = 0;
+    const client = await clientFor(1);
+    const out = JSON.parse(text(await client.callTool({
+      name: "create_contact",
+      arguments: {
+        firstName: "Jane", lastName: "Doe", company: "Doe Holdings", phone: "208-555-0100",
+        isOwner: true, notes: "VP Acquisitions\nOwns the strip center on Fairview Ave",
+        metThem: { summary: "Coffee at Flying M", details: "Thinking about selling next year" },
+      },
+    })));
+    expect(out.confirmation).toBe("Added Jane Doe (Doe Holdings) as a new contact, with notes and logged the meeting in their history.");
+    expect(createdContacts.at(-1)).toEqual(expect.objectContaining({ userId: 1, isOwner: true, notes: expect.stringContaining("Fairview") }));
+    expect(createdActivities).toEqual([expect.objectContaining({ userId: 1, contactId: 900, type: "meeting", subject: "Coffee at Flying M" })]);
+  });
+
+  it("stops on a likely duplicate and points Claude to logging on the existing contact", async () => {
+    createdActivities.length = 0;
+    const client = await clientFor(1);
+    const out = JSON.parse(text(await client.callTool({
+      name: "create_contact",
+      arguments: { firstName: "Mike", lastName: "Jones", metThem: { summary: "Lunch" } },
+    })));
+    expect(out.created).toBe(false);
+    expect(out.note).toMatch(/log_activity/);
+    expect(createdActivities).toHaveLength(0);
   });
 });

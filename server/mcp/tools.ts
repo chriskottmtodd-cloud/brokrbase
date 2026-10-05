@@ -37,6 +37,31 @@ const TASK_TYPE = z.enum(["call", "email", "meeting", "follow_up", "research", "
 const PRIORITY = z.enum(["urgent", "high", "medium", "low"]);
 const DEAL_ROLE = z.enum(["owner", "seller", "buyer", "tenant", "buyers_broker", "listing_agent", "property_manager", "attorney", "lender", "other"]);
 
+const CREATE_CONTACT_SHAPE = {
+  firstName: z.string().min(1).max(100),
+  lastName: z.string().max(100).default(""),
+  company: z.string().max(200).optional(),
+  email: z.string().max(320).optional(),
+  phone: z.string().max(30).optional(),
+  address: z.string().optional().describe("Street address"),
+  city: z.string().max(100).optional(),
+  state: z.string().max(50).optional(),
+  zip: z.string().max(20).optional(),
+  isOwner: z.boolean().optional().describe("True if they own property"),
+  isBuyer: z.boolean().optional().describe("True if they're looking to buy"),
+  notes: z.string().optional().describe("Lasting facts about the person: title, website, what they own or want. Not the meeting itself"),
+  metThem: z
+    .object({
+      summary: z.string().max(300).describe("One line, e.g. \"Met at the CCIM lunch\""),
+      details: z.string().optional().describe("What was discussed"),
+      type: ACTIVITY_TYPE.default("meeting"),
+      occurredAt: z.string().optional().describe("ISO date/time; defaults to now"),
+    })
+    .optional()
+    .describe("If the user met or talked with them, logged in their history as an activity"),
+  confirmNew: z.boolean().default(false),
+};
+
 const UPDATE_CONTACT_SHAPE = {
   contactId: z.number().int(),
   firstName: z.string().min(1).max(100).optional(),
@@ -358,7 +383,7 @@ export function registerBrokrbaseTools(server: McpServer, userId: number) {
     {
       title: "Log activity",
       description:
-        "Log a call, email, meeting, text, voicemail, or note, linked to a contact and/or property. Get ids from search_contacts / search_properties first (pass the property to search_contacts so the right person ranks first). If the search flagged a close call, ask the user first; otherwise just log it. Always finish by telling the user, in one line, the `confirmation` from the response and that they can say so if it's the wrong person.",
+        "Log a call, email, meeting, text, voicemail, or note, linked to a contact and/or property. Use this whenever the user says they met, called, texted, or had coffee/lunch with an existing contact; coffee or lunch is type meeting. Get ids from search_contacts / search_properties first (pass the property to search_contacts so the right person ranks first). If the search flagged a close call, ask the user first; otherwise just log it. Always finish by telling the user, in one line, the `confirmation` from the response and that they can say so if it's the wrong person.",
       inputSchema: {
         type: ACTIVITY_TYPE,
         contactId: z.number().int().optional(),
@@ -449,27 +474,60 @@ export function registerBrokrbaseTools(server: McpServer, userId: number) {
     {
       title: "Create contact",
       description:
-        "Add a new contact. Checks for likely duplicates first: if any are found, nothing is created and they're returned — ask the user whether one of them is the right person. Only pass confirmNew: true after the user says it's a different person.",
-      inputSchema: {
-        firstName: z.string().min(1).max(100),
-        lastName: z.string().max(100).default(""),
-        company: z.string().max(200).optional(),
-        email: z.string().max(320).optional(),
-        phone: z.string().max(30).optional(),
-        notes: z.string().optional(),
-        confirmNew: z.boolean().default(false),
-      },
+        "Add a new contact, e.g. from a business card photo or someone the user just met. Fill every field you can from the card. " +
+        "Split what you know into two places: `notes` holds lasting facts about the person as short lines (job title, website, what they own or are looking for, especially a building that isn't in the CRM yet, e.g. \"Owns the strip center on Fairview Ave\"). " +
+        "`metThem` logs the interaction itself in their history: if the user met them, called them, or talked with them, put where/when and what was discussed there, not in notes. Skip filler like logos or slogans. " +
+        "Checks for likely duplicates first: if any are found, nothing is created and they're returned; ask the user whether one is the same person, and only pass confirmNew: true if it's someone different. " +
+        "After creating, reply with the `confirmation`, then do any other follow-ups the user asked for (create_task, link_contact_to_property if the building is in the CRM).",
+      inputSchema: CREATE_CONTACT_SHAPE,
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    run("create_contact", async (c: { firstName: string; lastName: string; company?: string; email?: string; phone?: string; notes?: string; confirmNew: boolean }) => {
-      if (!c.confirmNew) {
+    run("create_contact", async ({ confirmNew, metThem, ...c }: z.infer<z.ZodObject<typeof CREATE_CONTACT_SHAPE>>) => {
+      const metAt = metThem?.occurredAt ? new Date(metThem.occurredAt) : new Date();
+      if (isNaN(metAt.getTime())) return fail("metThem.occurredAt isn't a valid date.");
+      if (!confirmNew) {
         const similar = await findSimilarContacts(userId, c);
         if (similar.length > 0) {
-          return ok({ created: false, possibleDuplicates: similar, note: "Possible duplicates found. Ask the user before creating; pass confirmNew: true if it's a different person." });
+          return ok({ created: false, possibleDuplicates: similar, note: "Possible duplicates found. Ask the user whether one is the same person. If it's the same person, don't create anyone: log the interaction on the existing contact with log_activity, and add any new facts with update_contact. If it's someone different, call create_contact again with confirmNew: true." });
         }
       }
-      const result = await createContact({ userId, firstName: c.firstName, lastName: c.lastName, company: c.company ?? null, email: c.email ?? null, phone: c.phone ?? null, notes: c.notes ?? null });
-      return ok({ created: true, contactId: (result as { insertId?: number }).insertId, name: `${c.firstName} ${c.lastName}`.trim() });
+      const result = await createContact({
+        userId,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        company: c.company ?? null,
+        email: c.email ?? null,
+        phone: c.phone ?? null,
+        address: c.address ?? null,
+        city: c.city ?? null,
+        state: c.state ?? null,
+        zip: c.zip ?? null,
+        isOwner: c.isOwner ?? false,
+        isBuyer: c.isBuyer ?? false,
+        notes: c.notes ?? null,
+        notesUpdatedAt: c.notes ? new Date() : null,
+      });
+      const contactId = (result as { insertId?: number }).insertId;
+      let activityId: number | null = null;
+      if (metThem && contactId) {
+        const logged = await createActivity({
+          userId,
+          contactId,
+          type: metThem.type,
+          subject: metThem.summary,
+          notes: metThem.details ?? null,
+          occurredAt: metAt,
+        });
+        activityId = (logged as unknown as Array<{ insertId: number }>)[0]?.insertId ?? null;
+      }
+      const name = `${c.firstName} ${c.lastName}`.trim();
+      const extras = [c.notes && "notes", metThem && `logged the ${metThem.type === "note" ? "note" : metThem.type} in their history`].filter(Boolean);
+      return ok({
+        created: true,
+        contactId,
+        activityId,
+        confirmation: `Added ${c.company ? `${name} (${c.company})` : name} as a new contact${extras.length ? `, with ${extras.join(" and ")}` : ""}.`,
+      });
     }),
   );
 
@@ -477,7 +535,7 @@ export function registerBrokrbaseTools(server: McpServer, userId: number) {
     "update_contact",
     {
       title: "Update contact",
-      description: "Update a contact's details. Only the fields you pass are changed. For notes, pass the full new notes text (read the current notes with get_contact first so nothing is lost).",
+      description: "Update a contact's details. Only the fields you pass are changed. For notes, pass the full new notes text: read the current notes with get_contact first and add to them, so nothing is lost.",
       inputSchema: UPDATE_CONTACT_SHAPE,
       annotations: { readOnlyHint: false, destructiveHint: false },
     },

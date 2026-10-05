@@ -31,10 +31,13 @@ function buildServer(userId: number): McpServer {
     {
       instructions:
         "Brokrbase is the user's commercial real estate CRM, usually used from a phone mid-day. " +
+        "Rule: whenever the user says they met, called, emailed, texted, had coffee or lunch with, or otherwise talked to someone, log it as an activity in that person's history (log_activity for an existing contact, metThem on create_contact for a new one). Never just add it to contact notes. " +
         "Search before you write: look up contacts with search_contacts (pass the property if one was mentioned so the right person ranks first). " +
         "Don't make the user confirm routine logging. If search_contacts reports a clear best match, go ahead and write, then reply with the tool's one-line `confirmation` (who, what, which property) and invite a correction, e.g. \"Logged a call with John Smith (Acme) on Fairview. Let me know if it was a different John.\" " +
         "Only ask first when search_contacts flags a close call, or nothing matches. " +
-        "If the user says something was wrong, fix it with update_activity or update_task; nothing can be deleted.",
+        "If the user says something was wrong, fix it with update_activity or update_task; nothing can be deleted. " +
+        "Business card photos: read the card and create_contact with every field you can fill. Lasting facts about the person (title, website, what they own) go in notes; the meeting itself (where, when, what was discussed) goes in metThem so it's logged as an activity in their history. " +
+        "If the user mentions a building, search_properties for it and link_contact_to_property if it's there; if it isn't in the CRM, note it on the contact instead (you can't create properties).",
     },
   );
   registerBrokrbaseTools(server, userId);
