@@ -134,7 +134,9 @@ function ConnectClaudeSection() {
         <ol className="text-sm space-y-1 list-decimal pl-5">
           <li>Tap <strong>{connected ? "New link" : "Create link"}</strong> below and copy it.</li>
           <li>On a computer, go to claude.ai, then Settings, then Connectors, then <strong>Add custom connector</strong>.</li>
-          <li>Name it Brokrbase, paste the link, and click Add.</li>
+          <li>Name it Brokrbase and paste the link.</li>
+          <li>Under Authentication, leave <strong>No sign-in</strong> selected. The yellow warning is expected: your private link is the key. Leave Request headers empty and click <strong>Add</strong>.</li>
+          <li>Start a new chat and ask "What's overdue in Brokrbase?" Allow it when Claude asks to use Brokrbase.</li>
           <li>Done. It also works in the Claude app on your phone.</li>
         </ol>
 
