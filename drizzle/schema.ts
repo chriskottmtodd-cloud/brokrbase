@@ -30,6 +30,8 @@ export const users = mysqlTable("users", {
   signature: text("signature"),
   voiceNotes: text("voiceNotes"),
   preferences: text("preferences"), // JSON: { propertyTypes, typeColors }
+  // SHA-256 of the secret in the user's "Connect to Claude" MCP link (null = not connected)
+  mcpTokenHash: varchar("mcpTokenHash", { length: 64 }).unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

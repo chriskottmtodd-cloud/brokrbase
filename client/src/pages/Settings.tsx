@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  Copy,
   Loader2,
   MapPin,
+  MessageSquare,
   Palette,
   Plus,
   Save,
@@ -56,6 +58,100 @@ export function getTypeColor(prefs: UserPreferences, type: string): string {
   if (prefs.typeColors?.[type]) return prefs.typeColors[type];
   const found = ALL_PROPERTY_TYPES.find((t) => t.value === type);
   return found?.defaultColor ?? "#d03238";
+}
+
+function ConnectClaudeSection() {
+  const statusQuery = trpc.users.mcpStatus.useQuery();
+  const generateMut = trpc.users.generateMcpToken.useMutation();
+  const revokeMut = trpc.users.revokeMcpToken.useMutation();
+  // The full link is only available right after generating; the server stores a hash
+  const [link, setLink] = useState<string | null>(null);
+
+  const connected = statusQuery.data?.connected ?? false;
+
+  const handleGenerate = async () => {
+    if (connected && !confirm("This replaces your current link. Claude will stop working until you paste the new one. Continue?")) return;
+    try {
+      const { path } = await generateMut.mutateAsync();
+      setLink(`${window.location.origin}${path}`);
+      statusQuery.refetch();
+    } catch {
+      toast.error("Couldn't create a link");
+    }
+  };
+
+  const handleRevoke = async () => {
+    if (!confirm("Disconnect Claude? The current link will stop working.")) return;
+    try {
+      await revokeMut.mutateAsync();
+      setLink(null);
+      statusQuery.refetch();
+      toast.success("Claude disconnected");
+    } catch {
+      toast.error("Couldn't disconnect");
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success("Link copied");
+    } catch {
+      toast.error("Couldn't copy. Select the link and copy it manually.");
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <MessageSquare className="h-4 w-4" /> Connect to Claude
+          <Badge variant="outline" className="text-[10px] ml-auto">
+            {connected ? "Connected" : "Not connected"}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Talk to your CRM from the Claude app: "What's overdue?", "Log a call with Mike about the Fairview building",
+          "Remind me to follow up with Sarah Friday."
+        </p>
+
+        {link ? (
+          <div className="space-y-2 p-3 border rounded-md bg-muted/30">
+            <Field label="Your private link" sub="Copy it now. For security it won't be shown again. Anyone with this link can access your CRM, so don't share it.">
+              <div className="flex gap-2">
+                <Input readOnly value={link} onFocus={(e) => e.target.select()} className="font-mono text-xs" />
+                <Button size="sm" variant="outline" onClick={handleCopy} className="gap-1 shrink-0">
+                  <Copy className="h-3 w-3" /> Copy
+                </Button>
+              </div>
+            </Field>
+          </div>
+        ) : null}
+
+        <ol className="text-sm space-y-1 list-decimal pl-5">
+          <li>Tap <strong>{connected ? "New link" : "Create link"}</strong> below and copy it.</li>
+          <li>On a computer, go to claude.ai, then Settings, then Connectors, then <strong>Add custom connector</strong>.</li>
+          <li>Name it Brokrbase, paste the link, and click Add.</li>
+          <li>Done. It also works in the Claude app on your phone.</li>
+        </ol>
+
+        <div className="flex gap-2">
+          <Button size="sm" onClick={handleGenerate} disabled={generateMut.isPending}>
+            {generateMut.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+            {connected ? "New link" : "Create link"}
+          </Button>
+          {connected && (
+            <Button size="sm" variant="ghost" onClick={handleRevoke} disabled={revokeMut.isPending}>
+              Disconnect
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function TeamSection() {
@@ -422,6 +518,8 @@ export default function Settings() {
               {updateMut.isPending ? "Saving…" : "Save Profile"}
             </Button>
           </div>
+
+          <ConnectClaudeSection />
 
           <TeamSection />
         </>

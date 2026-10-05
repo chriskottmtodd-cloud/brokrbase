@@ -7,8 +7,10 @@ import {
   getAllUsers,
   getUserByEmail,
   getUserById,
+  setMcpTokenHash,
   updateUserProfile,
 } from "../db";
+import { generateMcpToken, hashMcpToken } from "../_core/mcp";
 
 export const usersRouter = router({
   getMyProfile: protectedProcedure.query(async ({ ctx }) => {
@@ -53,6 +55,24 @@ export const usersRouter = router({
       await updateUserProfile(ctx.user.id, data);
       return { success: true };
     }),
+
+  // ─── Connect to Claude (MCP link) ─────────────────────────────────────────
+  mcpStatus: protectedProcedure.query(async ({ ctx }) => {
+    const user = await getUserById(ctx.user.id);
+    return { connected: !!user?.mcpTokenHash };
+  }),
+
+  /** Creates a new private link, replacing (and killing) any previous one. Returned once. */
+  generateMcpToken: protectedProcedure.mutation(async ({ ctx }) => {
+    const token = generateMcpToken();
+    await setMcpTokenHash(ctx.user.id, hashMcpToken(token));
+    return { path: `/mcp/${token}` };
+  }),
+
+  revokeMcpToken: protectedProcedure.mutation(async ({ ctx }) => {
+    await setMcpTokenHash(ctx.user.id, null);
+    return { success: true };
+  }),
 
   list: adminProcedure.query(async () => getAllUsers()),
 

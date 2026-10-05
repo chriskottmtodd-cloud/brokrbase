@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerPasswordAuthRoutes } from "../passwordAuth";
+import { registerMcpRoutes } from "./mcp";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -40,6 +41,12 @@ async function runSelfHealingMigrations() {
       await db.execute(sql`ALTER TABLE users ADD COLUMN preferences TEXT`);
       console.log("[migration] Added preferences column to users");
     }
+    // mysql2 returns [rows, fields] — check the rows, not the tuple
+    const [mcpCols] = (await db.execute(sql`SHOW COLUMNS FROM users LIKE 'mcpTokenHash'`)) as unknown as [unknown[], unknown];
+    if (mcpCols.length === 0) {
+      await db.execute(sql`ALTER TABLE users ADD COLUMN mcpTokenHash VARCHAR(64) NULL, ADD UNIQUE INDEX users_mcpTokenHash_unique (mcpTokenHash)`);
+      console.log("[migration] Added mcpTokenHash column to users");
+    }
   } catch (e) {
     console.warn("[migration] Self-healing migration warning:", e);
   }
@@ -59,6 +66,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Simple email/password login (alternative to OAuth)
   registerPasswordAuthRoutes(app);
+  // Remote MCP server for the Claude app ("Connect to Claude" in Settings)
+  registerMcpRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

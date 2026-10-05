@@ -1,6 +1,7 @@
 import { and, desc, eq, lte } from "drizzle-orm";
 import { InsertTask, Task, tasks } from "../../drizzle/schema";
 import { getDb } from "./connection";
+import { createActivity } from "./activities";
 
 export async function getTasks(userId: number, filters?: {
   status?: string;
@@ -46,4 +47,35 @@ export async function deleteTask(id: number, userId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+}
+
+export async function getTaskById(id: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId))).limit(1);
+  return result[0];
+}
+
+const ACTIVITY_TYPES = ["call", "email", "meeting", "note", "text", "voicemail"] as const;
+
+/**
+ * Complete a task and, if it has a contact, log an activity in their history.
+ * Server-side twin of handleComplete() in client/src/pages/Tasks.tsx.
+ */
+export async function completeTaskWithLog(task: Task, userId: number, note?: string) {
+  await updateTask(task.id, userId, { status: "completed", completedAt: new Date() });
+  if (!task.contactId) return { activityLogged: false };
+  const type = (ACTIVITY_TYPES as readonly string[]).includes(task.type)
+    ? (task.type as (typeof ACTIVITY_TYPES)[number])
+    : "note";
+  await createActivity({
+    userId,
+    type,
+    contactId: task.contactId,
+    propertyId: task.propertyId ?? undefined,
+    subject: task.title,
+    notes: note ?? null,
+    outcome: "follow_up",
+  });
+  return { activityLogged: true };
 }

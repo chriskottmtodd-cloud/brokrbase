@@ -108,3 +108,16 @@ export async function updateUserProfile(
   if (!db) throw new Error("DB unavailable");
   await db.update(users).set(data).where(eq(users.id, id));
 }
+
+export async function getUserByMcpTokenHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const result = await db.select().from(users).where(eq(users.mcpTokenHash, tokenHash)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function setMcpTokenHash(userId: number, tokenHash: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(users).set({ mcpTokenHash: tokenHash }).where(eq(users.id, userId));
+}
