@@ -136,7 +136,7 @@ function ConnectClaudeSection() {
           <li>On a computer, go to claude.ai, then Settings, then Connectors, then <strong>Add custom connector</strong>.</li>
           <li>Name it Brokrbase and paste the link.</li>
           <li>Under Authentication, leave <strong>No sign-in</strong> selected. The yellow warning is expected: your private link is the key. Leave Request headers empty and click <strong>Add</strong>.</li>
-          <li>Start a new chat and ask "What's overdue in Brokrbase?" Allow it when Claude asks to use Brokrbase.</li>
+          <li>Start a new chat and ask "What's overdue in Brokrbase?" When Claude asks permission, choose <strong>Always allow</strong> so it won't ask every time. You can also set this for all Brokrbase tools at once under claude.ai, then Settings, then Connectors, then Brokrbase.</li>
           <li>Done. It also works in the Claude app on your phone.</li>
         </ol>
 
