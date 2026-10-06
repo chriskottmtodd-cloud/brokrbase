@@ -35,7 +35,14 @@ function clearRateLimit(ip: string) {
 
 export function registerPasswordAuthRoutes(app: Express) {
   // ─── Self-service registration ────────────────────────────────────────────
+  // Closed by default: accounts are created by an admin in Settings → Team.
+  // Set ALLOW_SIGNUP=true to reopen public sign-up.
   app.post("/api/auth/register", async (req: Request, res: Response) => {
+    if (process.env.ALLOW_SIGNUP !== "true") {
+      res.status(403).json({ error: "Brokrbase is invite-only. Ask your admin for an account." });
+      return;
+    }
+
     const { name, email, password } = req.body as { name?: string; email?: string; password?: string };
 
     if (!name || !email || !password) {

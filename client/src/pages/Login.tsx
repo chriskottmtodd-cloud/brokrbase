@@ -1,8 +1,6 @@
 import { useState } from "react";
 
 export default function Login({ onSuccess }: { onSuccess: () => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -14,22 +12,6 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true);
 
     try {
-      if (mode === "register") {
-        // Create account
-        const res = await fetch("/api/auth/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, password }),
-          credentials: "include",
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          setError(data.error || "Registration failed");
-          return;
-        }
-      }
-
-      // Log in (also auto-logs in after registration)
       const res = await fetch("/api/auth/password-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,22 +43,6 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === "register" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Name
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#d03238] focus:border-transparent"
-                placeholder="Your name"
-                required
-              />
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Email
@@ -116,38 +82,13 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
             className="w-full py-2 px-4 disabled:opacity-50 text-white font-medium rounded-md transition-colors"
             style={{ backgroundColor: "#d03238" }}
           >
-            {loading
-              ? (mode === "register" ? "Creating account..." : "Signing in...")
-              : (mode === "register" ? "Create Account" : "Sign In")
-            }
+            {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
 
-        <div className="text-center mt-4">
-          {mode === "login" ? (
-            <p className="text-sm text-gray-500">
-              Don't have an account?{" "}
-              <button
-                onClick={() => { setMode("register"); setError(""); }}
-                className="font-medium hover:underline"
-                style={{ color: "#d03238" }}
-              >
-                Create one
-              </button>
-            </p>
-          ) : (
-            <p className="text-sm text-gray-500">
-              Already have an account?{" "}
-              <button
-                onClick={() => { setMode("login"); setError(""); }}
-                className="font-medium hover:underline"
-                style={{ color: "#d03238" }}
-              >
-                Sign in
-              </button>
-            </p>
-          )}
-        </div>
+        <p className="text-center mt-4 text-sm text-gray-500">
+          Brokrbase is invite-only. Ask your admin for an account.
+        </p>
       </div>
     </div>
   );
