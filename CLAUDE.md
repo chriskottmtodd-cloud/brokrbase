@@ -61,7 +61,7 @@ Also:
 
 ## Relationship to RE-CRM (the parent project)
 
-- **Parent project location:** `/Users/chriskotttodd/Desktop/Manus CRM/re-crm (1)/`
+- **Parent project location:** `/Users/chriskotttodd/dev/chriskottcrm/re-crm (1)/`
 - **Parent project repo:** `chriskottmtodd-cloud/re-crm`
 - **Parent project deploy:** chriskottcrm.com
 

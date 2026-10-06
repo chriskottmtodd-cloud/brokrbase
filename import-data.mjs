@@ -4,7 +4,7 @@ import { join } from 'path';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const DB_URL = 'mysql://root@localhost:3306/re_crm';
-const CSV_DIR = '/Users/chriskotttodd/Desktop/Manus CRM/crm_backup_2026-04-04';
+const CSV_DIR = '/Users/chriskotttodd/dev/chriskottcrm/crm_backup_2026-04-04';
 const BATCH_SIZE = 150;
 const DEFAULT_USER_ID = 1;
 
